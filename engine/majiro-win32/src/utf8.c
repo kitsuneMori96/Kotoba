@@ -1,6 +1,7 @@
 #include "majiro.h"
 #include <stdarg.h>
 #include <stdio.h>
+#include <string.h>
 
 uint32_t g_last_key = 0;
 uint32_t g_char_len = 0;
@@ -120,4 +121,23 @@ const char *__cdecl k_strchr(const char *s, unsigned int ch) {
     p += n;
   }
   return ch == 0 ? (const char *)p : NULL;
+}
+
+/* _mbsrev replacement: reverse whole characters so strright$ keeps UTF-8 intact. */
+char *__cdecl k_strrev(char *s) {
+  char tmp[2048];
+  uint32_t cp;
+  int len, n, pos;
+  const unsigned char *p = (const unsigned char *)s;
+  if (!s) return s;
+  len = (int)strlen(s);
+  if (len >= (int)sizeof(tmp)) return s;
+  pos = len;
+  while ((n = k_decode(p, &cp)) > 0) {
+    pos -= n;
+    memcpy(tmp + pos, p, n);
+    p += n;
+  }
+  memcpy(s, tmp, len);
+  return s;
 }

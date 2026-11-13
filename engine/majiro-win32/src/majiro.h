@@ -17,6 +17,7 @@ const char *__cdecl k_skip(const char *p, int n);
 int __cdecl k_is_lead(int b);
 char *__cdecl k_lower(char *p);
 const char *__cdecl k_strchr(const char *s, unsigned int ch);
+char *__cdecl k_strrev(char *s);
 
 void k_log(const char *fmt, ...);
 void k_iat_hook(const char *dll, const char *fn, void *repl);
