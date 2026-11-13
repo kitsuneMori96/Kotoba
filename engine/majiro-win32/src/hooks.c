@@ -147,7 +147,28 @@ static const BYTE S_M1[] = {0x8D, 0x45, 0x08, 0x8D, 0x50, 0x01, 0x8D, 0xA4, 0x24
 static const BYTE S_M2[] = {0x8D, 0x4D, 0xF8, 0x8D, 0x51, 0x01, 0x8A, 0x01, 0x41, 0x84, 0xC0, 0x75,
                             0xF9, 0x8D, 0x45, 0xD4, 0x2B, 0xCA, 0x50, 0x51, 0x8D, 0x45, 0xF8, 0x50};
 
+static const BYTE S_HASH[] = {0x55, 0x8B, 0xEC, 0x8B, 0x55, 0x08, 0x8B, 0xC2, 0x56, 0x8D, 0x70, 0x01};
+
+typedef unsigned long long(__cdecl *hash_core_t)(unsigned long long, const char *, unsigned);
+
+/* Arc entries are keyed by the hash of the CP932 name, but UTF-8 scripts pass
+   UTF-8 bytes; hash the CP932 form whenever the name converts losslessly. */
+static unsigned long long __cdecl k_name_hash(const char *s) {
+  hash_core_t core = (hash_core_t)(g_base + (0x479150 - IMAGE_BASE));
+  const char *p = s;
+  char buf[512];
+  WCHAR w[256];
+  BOOL bad = FALSE;
+  const unsigned char *q;
+  for (q = (const unsigned char *)s; *q && *q < 0x80; q++) {}
+  if (*q && MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s, -1, w, 256) > 0 &&
+      WideCharToMultiByte(932, WC_NO_BEST_FIT_CHARS, w, -1, buf, sizeof(buf), NULL, &bad) > 0 && !bad)
+    p = buf;
+  return ~core(~0ULL, p, (unsigned)strlen(p));
+}
+
 static void patch_text_layer(void) {
+  install_detour(0x478E40, (void *)k_name_hash);
   install_detour(0x47C5D0, (void *)k_next);
   install_detour(0x47C610, (void *)k_count);
   install_detour(0x47C6C0, (void *)k_skip);
@@ -194,7 +215,7 @@ void kotoba_init(void) {
 
   if (!(sig_ok(0x47C5D0, S_NEXT, sizeof(S_NEXT)) && sig_ok(0x47C610, S_COUNT, sizeof(S_COUNT)) &&
         sig_ok(0x47C6C0, S_SKIP, sizeof(S_SKIP)) && sig_ok(0x47EE00, S_LEAD, sizeof(S_LEAD)) &&
-        sig_ok(0x47C650, S_LOWER, sizeof(S_LOWER)) && sig_ok(0x47C440, S_STRCHR, sizeof(S_STRCHR)) && sig_ok(0x47C710, S_STRREV, sizeof(S_STRREV)) && sig_ok(0x4444C4, S_K1, sizeof(S_K1)) &&
+        sig_ok(0x47C650, S_LOWER, sizeof(S_LOWER)) && sig_ok(0x47C440, S_STRCHR, sizeof(S_STRCHR)) && sig_ok(0x47C710, S_STRREV, sizeof(S_STRREV)) && sig_ok(0x478E40, S_HASH, sizeof(S_HASH)) && sig_ok(0x4444C4, S_K1, sizeof(S_K1)) &&
         sig_ok(0x44463B, S_K2, sizeof(S_K2)) && sig_ok(0x444870, S_K2, sizeof(S_K2)) &&
         sig_ok(0x444D57, S_K3, sizeof(S_K3)) && sig_ok(0x442AEF, S_K4, sizeof(S_K4)) &&
         sig_ok(0x4444F3, S_M1, sizeof(S_M1)) && sig_ok(0x442B2E, S_M2, sizeof(S_M2)))) {
