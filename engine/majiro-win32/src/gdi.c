@@ -59,6 +59,29 @@ static void log_legacy(const char *s, int n) {
   k_log("legacy: %s", s);
 }
 
+/* The name plate is drawn as its own short TextOutA right before the line.
+   Remember it so the duplicated "名前「本文」" text can drop the prefix. */
+static WCHAR g_name[16];
+static int g_name_len;
+static int g_trace;
+
+static void trace_out(int x, int y, const WCHAR *s, int n) {
+  char utf8[512];
+  int k;
+  if (!g_trace) return;
+  k = WideCharToMultiByte(CP_UTF8, 0, s, n, utf8, sizeof(utf8) - 1, NULL, NULL);
+  if (k <= 0) return;
+  utf8[k] = 0;
+  k_log("out(%d,%d): %s", x, y, utf8);
+}
+
+static int strip_name(WCHAR *buf, int w) {
+  if (g_name_len <= 0 || w <= g_name_len + 1) return w;
+  if (wcsncmp(buf, g_name, g_name_len) != 0 || buf[g_name_len] != L'「') return w;
+  memmove(buf, buf + g_name_len, (w - g_name_len) * sizeof(WCHAR));
+  return w - g_name_len;
+}
+
 static BOOL WINAPI my_textout_a(HDC hdc, int x, int y, LPCSTR s, int n) {
   WCHAR buf[2048];
   int w, raw_n;
@@ -69,6 +92,14 @@ static BOOL WINAPI my_textout_a(HDC hdc, int x, int y, LPCSTR s, int n) {
     log_legacy(s, raw_n);
     w = to_wide(s, raw_n, buf, 2048);
     if (w <= 0) return real_textout_a ? real_textout_a(hdc, x, y, s, n) : 0;
+  }
+  trace_out(x, y, buf, w);
+  if (w >= 1 && w <= 10 && !wcschr(buf, L'「') && !wcschr(buf, L'」') && !wcschr(buf, L'\n')) {
+    memcpy(g_name, buf, w * sizeof(WCHAR));
+    g_name[w] = 0;
+    g_name_len = w;
+  } else {
+    w = strip_name(buf, w);
   }
   return real_textout_w(hdc, x, y, buf, w);
 }
@@ -168,6 +199,7 @@ void k_gdi_init(void) {
     DWORD n = GetEnvironmentVariableA("KOTOBA_FONT", env, sizeof(env));
     if (n > 0 && n < sizeof(env)) MultiByteToWideChar(CP_UTF8, 0, env, -1, g_face, LF_FACESIZE);
   }
+  g_trace = GetEnvironmentVariableA("KOTOBA_TRACE", NULL, 0) > 0;
 
   k_iat_hook("GDI32.dll", "TextOutA", (void *)my_textout_a);
   k_iat_hook("GDI32.dll", "GetTextExtentPoint32A", (void *)my_extent_a);
