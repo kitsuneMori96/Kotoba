@@ -36,6 +36,8 @@ int k_decode(const unsigned char *p, uint32_t *cp) {
   return 1;
 }
 
+static uint32_t unit_of(const unsigned char *p, int n, uint32_t cp);
+
 static void remember(const char *p, uint32_t cp, int n) {
   g_last_key = cp > 0xFFFF ? 0xFFFD : cp;
   g_char_len = (uint32_t)n;
@@ -50,7 +52,7 @@ const char *__cdecl k_next(const char *p) {
   if (!p) return p;
   n = k_decode((const unsigned char *)p, &cp);
   if (n == 0) { remember(p, 0, 0); return p; }
-  remember(p, cp, n);
+  remember(p, unit_of((const unsigned char *)p, n, cp), n);
   return p + n;
 }
 
