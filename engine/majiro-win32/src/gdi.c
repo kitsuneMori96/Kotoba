@@ -134,7 +134,8 @@ static HFONT WINAPI my_font_a(const LOGFONTA *lf) {
   if (!lf) return 0;
   memset(&w, 0, sizeof(w));
   w.lfHeight = lf->lfHeight;
-  w.lfWidth = lf->lfWidth;
+  /* A width inherited from the Japanese face stretches YaHei horizontally. */
+  w.lfWidth = 0;
   w.lfEscapement = lf->lfEscapement;
   w.lfOrientation = lf->lfOrientation;
   w.lfWeight = lf->lfWeight;
