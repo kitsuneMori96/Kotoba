@@ -20,6 +20,7 @@ static attrs_w_t real_attrs_w;
 static attrs_a_t real_attrs_a;
 static settext_w_t real_settext_w;
 static msgbox_a_t real_msgbox_a;
+static int (WINAPI *real_msgbox_w)(HWND, LPCWSTR, LPCWSTR, UINT);
 static cw_ex_w_t real_cw_ex_w;
 static cw_ex_a_t real_cw_ex_a;
 
@@ -130,18 +131,34 @@ static HWND WINAPI my_cw_ex_a(DWORD ex, LPCSTR cls, LPCSTR title, DWORD style, i
   return real_cw_ex_w(ex, cls_p, title_p, style, x, y, w, h, parent, menu, inst, param);
 }
 
+static int to_wide_any(const char *s, WCHAR *out, int cap) {
+  int w = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s, -1, out, cap);
+  if (w <= 0) w = MultiByteToWideChar(932, 0, s, -1, out, cap);
+  return w;
+}
+
+static const struct { const WCHAR *ja, *zh; } k_msg_zh[] = {
+  {L"終了してよろしいですか？", L"确定要退出游戏吗？"},
+  {L"タイトルに戻ります。よろしいですか？", L"要返回标题画面吗？"},
+  {L"クイックセーブします。よろしいですか？", L"要快速存档吗？"},
+  {L"クイックロードします。よろしいですか？", L"要快速读档吗？"},
+  {L"クイックセーブしました", L"已快速存档"},
+  {L"クイックセーブされていません", L"没有快速存档"},
+  {L"ロードに失敗しました", L"读档失败"},
+};
+
 static int WINAPI my_msgbox_a(HWND hwnd, LPCSTR text, LPCSTR caption, UINT type) {
-  WCHAR wide[1024];
-  char utf8[2048];
-  int w;
-  if (text) {
-    w = MultiByteToWideChar(932, 0, text, -1, wide, 1024);
-    if (w > 0 &&
-        WideCharToMultiByte(CP_UTF8, 0, wide, -1, utf8, sizeof(utf8), NULL, NULL) > 0)
-      k_log("msgbox(sjis): %s", utf8);
-    k_log("msgbox(raw): %s", text);
+  WCHAR wtext[1024], wcap[256];
+  const WCHAR *t = NULL, *c = NULL;
+  size_t i;
+  if (!real_msgbox_w) return real_msgbox_a(hwnd, text, caption, type);
+  if (text && to_wide_any(text, wtext, 1024) > 0) {
+    t = wtext;
+    for (i = 0; i < sizeof(k_msg_zh) / sizeof(k_msg_zh[0]); i++)
+      if (wcscmp(wtext, k_msg_zh[i].ja) == 0) { t = k_msg_zh[i].zh; break; }
   }
-  return real_msgbox_a(hwnd, text, caption, type);
+  if (caption && to_wide_any(caption, wcap, 256) > 0) c = wcap;
+  return real_msgbox_w(hwnd, t, c, type);
 }
 
 void k_fs_init(void) {
@@ -154,6 +171,7 @@ void k_fs_init(void) {
   real_attrs_a = (attrs_a_t)GetProcAddress(k32, "GetFileAttributesA");
   if (u32) real_settext_w = (settext_w_t)GetProcAddress(u32, "SetWindowTextW");
   if (u32) real_msgbox_a = (msgbox_a_t)GetProcAddress(u32, "MessageBoxA");
+  if (u32) real_msgbox_w = (int (WINAPI *)(HWND, LPCWSTR, LPCWSTR, UINT))GetProcAddress(u32, "MessageBoxW");
   if (u32) real_cw_ex_w = (cw_ex_w_t)GetProcAddress(u32, "CreateWindowExW");
   if (u32) real_cw_ex_a = (cw_ex_a_t)GetProcAddress(u32, "CreateWindowExA");
   if (!real_create_w || !real_attrs_w) return;
