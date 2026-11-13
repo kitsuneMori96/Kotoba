@@ -1,5 +1,6 @@
 #include "majiro.h"
 #include <string.h>
+#include <wchar.h>
 
 typedef HANDLE (WINAPI *create_w_t)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD,
                                     DWORD, HANDLE);
@@ -101,6 +102,8 @@ static BOOL WINAPI my_settext_a(HWND hwnd, LPCSTR text) {
   return real_settext_w(hwnd, buf);
 }
 
+static void translate_menu(HMENU m);
+
 /* The title comes from TITLEBAR in majiro.env as CP932 bytes; the stock A
    path would decode it with CP936 and show mojibake. */
 static HWND WINAPI my_cw_ex_a(DWORD ex, LPCSTR cls, LPCSTR title, DWORD style, int x, int y,
@@ -128,7 +131,14 @@ static HWND WINAPI my_cw_ex_a(DWORD ex, LPCSTR cls, LPCSTR title, DWORD style, i
     }
   }
   if (!cls_p && cls) return real_cw_ex_a(ex, cls, title, style, x, y, w, h, parent, menu, inst, param);
-  return real_cw_ex_w(ex, cls_p, title_p, style, x, y, w, h, parent, menu, inst, param);
+  {
+    HWND hwnd = real_cw_ex_w(ex, cls_p, title_p, style, x, y, w, h, parent, menu, inst, param);
+    if (hwnd && !parent && GetMenu(hwnd)) {
+      translate_menu(GetMenu(hwnd));
+      DrawMenuBar(hwnd);
+    }
+    return hwnd;
+  }
 }
 
 static int to_wide_any(const char *s, WCHAR *out, int cap) {
@@ -146,6 +156,60 @@ static const struct { const WCHAR *ja, *zh; } k_msg_zh[] = {
   {L"クイックセーブされていません", L"没有快速存档"},
   {L"ロードに失敗しました", L"读档失败"},
 };
+
+static const struct { const WCHAR *ja, *zh; } k_menu_zh[] = {
+  {L"ファイル/設定", L"文件/设置"}, {L"ファイル", L"文件"}, {L"セーブ", L"存档"},
+  {L"名前を付けてセーブ", L"命名存档"}, {L"ロード", L"读档"}, {L"名前で指定してロード", L"按名称读档"},
+  {L"画面の保存", L"保存截图"}, {L"ジョイスティック使用", L"使用手柄"}, {L"スピード設定", L"速度设置"},
+  {L"サウンド設定", L"声音设置"}, {L"音声個別設定", L"角色语音设置"}, {L"フォント設定", L"字体设置"},
+  {L"フォント", L"字体"}, {L"拡張設定", L"扩展设置"}, {L"タイトルへ戻る", L"返回标题"},
+  {L"終了", L"退出"}, {L"画面設定", L"画面设置"}, {L"スクリーン", L"画面"},
+  {L"フルスクリーン", L"全屏"}, {L"ウインドウ", L"窗口"}, {L"ワイドモード", L"宽屏模式"},
+  {L"ムービー設定", L"影片设置"}, {L"DirectShowで再生", L"用 DirectShow 播放"},
+  {L"MCIで再生", L"用 MCI 播放"}, {L"ムービー禁止", L"禁用影片"}, {L"ムービーを禁止", L"禁用影片"},
+  {L"スクリーン詳細設定", L"画面详细设置"}, {L"オートプレイ", L"自动播放"}, {L"オートモード", L"自动模式"},
+  {L"既読スキップ", L"跳过已读"}, {L"強制スキップ", L"强制跳过"}, {L"スキップ", L"跳过"},
+  {L"設定", L"设置"}, {L"コンフィグ", L"设置"}, {L"前の選択に戻る", L"返回上一个选项"},
+  {L"次の選択に飛ぶ", L"跳到下一个选项"}, {L"ヘルプ", L"帮助"}, {L"バージョン情報", L"版本信息"},
+  {L"エラーログを開く", L"打开错误日志"}, {L"ユーザーサポート", L"用户支持"}, {L"Qセーブ", L"快速存档"},
+  {L"Qロード", L"快速读档"}, {L"バックログ", L"历史记录"}, {L"自動進行", L"自动播放"},
+  {L"読んだ所はスキップ", L"跳过已读"}, {L"常に手前に表示", L"窗口置顶"},
+};
+
+/* Translate the text before "(", "\t" or "..." and keep accelerators/shortcuts. */
+static void translate_menu(HMENU m) {
+  int i, n = m ? GetMenuItemCount(m) : 0;
+  for (i = 0; i < n; i++) {
+    WCHAR text[256], out[256];
+    MENUITEMINFOW mi;
+    size_t k, core;
+    memset(&mi, 0, sizeof(mi));
+    mi.cbSize = sizeof(mi);
+    mi.fMask = MIIM_STRING | MIIM_SUBMENU | MIIM_FTYPE;
+    mi.dwTypeData = text;
+    mi.cch = 256;
+    if (!GetMenuItemInfoW(m, i, TRUE, &mi)) continue;
+    if (mi.hSubMenu) translate_menu(mi.hSubMenu);
+    if (mi.fType & MFT_SEPARATOR || !mi.cch) continue;
+    core = wcscspn(text, L"(\t");
+    if (core >= 3 && wcsncmp(text + core - 3, L"...", 3) == 0) core -= 3;
+    for (k = 0; k < sizeof(k_menu_zh) / sizeof(k_menu_zh[0]); k++) {
+      if (wcslen(k_menu_zh[k].ja) != core || wcsncmp(text, k_menu_zh[k].ja, core) != 0) continue;
+      _snwprintf(out, 256, L"%s%s", k_menu_zh[k].zh, text + core);
+      out[255] = 0;
+      mi.fMask = MIIM_STRING;
+      mi.dwTypeData = out;
+      SetMenuItemInfoW(m, i, TRUE, &mi);
+      break;
+    }
+  }
+}
+
+static BOOL(WINAPI *real_setmenu)(HWND, HMENU);
+static BOOL WINAPI my_setmenu(HWND hwnd, HMENU m) {
+  translate_menu(m);
+  return real_setmenu(hwnd, m);
+}
 
 static int WINAPI my_msgbox_a(HWND hwnd, LPCSTR text, LPCSTR caption, UINT type) {
   WCHAR wtext[1024], wcap[256];
@@ -191,4 +255,6 @@ void k_fs_init(void) {
   if (real_settext_w) k_iat_hook("user32.dll", "SetWindowTextA", (void *)my_settext_a);
   if (real_msgbox_a) k_iat_hook("user32.dll", "MessageBoxA", (void *)my_msgbox_a);
   if (real_cw_ex_w && real_cw_ex_a) k_iat_hook("user32.dll", "CreateWindowExA", (void *)my_cw_ex_a);
+  if (u32) real_setmenu = (BOOL(WINAPI *)(HWND, HMENU))GetProcAddress(u32, "SetMenu");
+  if (real_setmenu) k_iat_hook("user32.dll", "SetMenu", (void *)my_setmenu);
 }
