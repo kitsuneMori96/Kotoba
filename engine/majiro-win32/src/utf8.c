@@ -93,3 +93,31 @@ char *__cdecl k_lower(char *p) {
   }
   return p;
 }
+
+static uint32_t unit_of(const unsigned char *p, int n, uint32_t cp) {
+  WCHAR w[2];
+  if (n == 2 && cp932_lead(p[0]) && cp == (((uint32_t)p[1] << 8) | p[0]) &&
+      MultiByteToWideChar(932, 0, (const char *)p, 2, w, 2) == 1)
+    return w[0];
+  return cp;
+}
+
+/* _mbschr replacement: callers pass CP932 codes such as 0x8175 for 「, so
+   compare by Unicode to match the same character in UTF-8 text too. */
+const char *__cdecl k_strchr(const char *s, unsigned int ch) {
+  const unsigned char *p = (const unsigned char *)s;
+  uint32_t want = ch, cp;
+  int n;
+  if (!p) return NULL;
+  if (ch >= 0x100) {
+    unsigned char b[2] = {(unsigned char)(ch >> 8), (unsigned char)ch};
+    WCHAR w[2];
+    if (MultiByteToWideChar(932, 0, (const char *)b, 2, w, 2) != 1) return NULL;
+    want = w[0];
+  }
+  while ((n = k_decode(p, &cp)) > 0) {
+    if (unit_of(p, n, cp) == want) return (const char *)p;
+    p += n;
+  }
+  return ch == 0 ? (const char *)p : NULL;
+}
