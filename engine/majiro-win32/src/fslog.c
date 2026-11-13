@@ -234,6 +234,45 @@ static int WINAPI my_msgbox_a(HWND hwnd, LPCSTR text, LPCSTR caption, UINT type)
   return real_msgbox_w(hwnd, t, c, type);
 }
 
+typedef struct { DLGPROC proc; LPARAM param; } font_dialog_ctx;
+static INT_PTR (WINAPI *real_dialog_a)(HINSTANCE, LPCSTR, HWND, DLGPROC, LPARAM);
+
+static BOOL CALLBACK translate_font_control(HWND hwnd, LPARAM unused) {
+  WCHAR text[256];
+  (void)unused;
+  GetWindowTextW(hwnd, text, 256);
+  if (wcscmp(text, L"フォント名") == 0) SetWindowTextW(hwnd, L"字体名称");
+  return TRUE;
+}
+
+static INT_PTR CALLBACK font_dialog_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+  font_dialog_ctx *ctx;
+  INT_PTR result;
+  if (msg == WM_INITDIALOG) {
+    ctx = (font_dialog_ctx *)lp;
+    SetPropW(hwnd, L"KotobaFontDialog", (HANDLE)ctx);
+    result = ctx->proc(hwnd, msg, wp, ctx->param);
+    SetWindowTextW(hwnd, L"选择字体");
+    SetDlgItemTextW(hwnd, IDOK, L"确定");
+    SetDlgItemTextW(hwnd, IDCANCEL, L"取消");
+    EnumChildWindows(hwnd, translate_font_control, 0);
+    return result;
+  }
+  ctx = (font_dialog_ctx *)GetPropW(hwnd, L"KotobaFontDialog");
+  if (!ctx) return FALSE;
+  result = ctx->proc(hwnd, msg, wp, lp);
+  if (msg == WM_NCDESTROY) RemovePropW(hwnd, L"KotobaFontDialog");
+  return result;
+}
+
+static INT_PTR WINAPI my_dialog_a(HINSTANCE inst, LPCSTR name, HWND parent, DLGPROC proc, LPARAM param) {
+  if (name && HIWORD(name) && strcmp(name, "SELFONT") == 0 && proc) {
+    font_dialog_ctx ctx = {proc, param};
+    return DialogBoxParamW(inst, L"SELFONT", parent, font_dialog_proc, (LPARAM)&ctx);
+  }
+  return real_dialog_a(inst, name, parent, proc, param);
+}
+
 void k_fs_init(void) {
   HMODULE k32 = GetModuleHandleA("kernel32.dll");
   HMODULE u32 = GetModuleHandleA("user32.dll");
@@ -257,4 +296,6 @@ void k_fs_init(void) {
   if (real_cw_ex_w && real_cw_ex_a) k_iat_hook("user32.dll", "CreateWindowExA", (void *)my_cw_ex_a);
   if (u32) real_setmenu = (BOOL(WINAPI *)(HWND, HMENU))GetProcAddress(u32, "SetMenu");
   if (real_setmenu) k_iat_hook("user32.dll", "SetMenu", (void *)my_setmenu);
+  if (u32) real_dialog_a = (INT_PTR (WINAPI *)(HINSTANCE, LPCSTR, HWND, DLGPROC, LPARAM))GetProcAddress(u32, "DialogBoxParamA");
+  if (real_dialog_a) k_iat_hook("user32.dll", "DialogBoxParamA", (void *)my_dialog_a);
 }

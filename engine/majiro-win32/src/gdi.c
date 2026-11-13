@@ -82,6 +82,11 @@ static BOOL WINAPI my_textout_a(HDC hdc, int x, int y, LPCSTR s, int n) {
     w = to_wide(s, raw_n, buf, 2048);
     if (w <= 0) return real_textout_a ? real_textout_a(hdc, x, y, s, n) : 0;
   }
+  if (w >= 9 && wcsncmp(buf, L"文字サンプルです。", 9) == 0) {
+    const WCHAR sample[] = L"中文字体示例。１２３４";
+    memcpy(buf, sample, sizeof(sample));
+    w = (int)wcslen(sample);
+  }
   trace_out(x, y, buf, w);
   return real_textout_w(hdc, x, y, buf, w);
 }
