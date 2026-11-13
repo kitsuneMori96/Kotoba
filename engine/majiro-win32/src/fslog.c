@@ -157,7 +157,16 @@ static int WINAPI my_msgbox_a(HWND hwnd, LPCSTR text, LPCSTR caption, UINT type)
     for (i = 0; i < sizeof(k_msg_zh) / sizeof(k_msg_zh[0]); i++)
       if (wcscmp(wtext, k_msg_zh[i].ja) == 0) { t = k_msg_zh[i].zh; break; }
   }
-  if (caption && to_wide_any(caption, wcap, 256) > 0) c = wcap;
+  if (caption) {
+    char cur[512];
+    /* Engine passes back its own window title fetched via GetWindowTextA,
+       i.e. CP936 bytes of our Unicode title; take the wide title instead. */
+    if (hwnd && GetWindowTextA(hwnd, cur, sizeof(cur)) > 0 && strcmp(cur, caption) == 0 &&
+        GetWindowTextW(hwnd, wcap, 256) > 0)
+      c = wcap;
+    else if (to_wide_any(caption, wcap, 256) > 0)
+      c = wcap;
+  }
   return real_msgbox_w(hwnd, t, c, type);
 }
 
