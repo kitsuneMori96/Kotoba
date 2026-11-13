@@ -134,7 +134,7 @@ static HFONT WINAPI my_font_a(const LOGFONTA *lf) {
   if (!lf) return 0;
   memset(&w, 0, sizeof(w));
   w.lfHeight = lf->lfHeight;
-  /* A width inherited from the Japanese face stretches YaHei horizontally. */
+  /* An explicit width from another face distorts the replacement font. */
   w.lfWidth = 0;
   w.lfEscapement = lf->lfEscapement;
   w.lfOrientation = lf->lfOrientation;
@@ -181,7 +181,8 @@ void k_gdi_init(void) {
 
   if (!real_textout_w || !real_extent_w || !real_metrics_w || !real_font_w) return;
 
-  MultiByteToWideChar(CP_UTF8, 0, "Microsoft YaHei", -1, g_face, LF_FACESIZE);
+  /* DengXian leaves more of the fixed engine cell available for CJK glyphs. */
+  MultiByteToWideChar(CP_UTF8, 0, "DengXian", -1, g_face, LF_FACESIZE);
   {
     char env[LF_FACESIZE * 2];
     DWORD n = GetEnvironmentVariableA("KOTOBA_FONT", env, sizeof(env));
