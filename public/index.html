@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kotoba · 翻译质量工作台</title><link rel="stylesheet" href="/style.css"></head><body>
+<header><div><b class="logo">言 Kotoba</b><span>翻译质量工作台 / LOCAL FIRST</span></div><div class="actions"><button id="demo">载入演示</button><label class="button">导入剧本 JSON<input id="import" type="file" accept=".json" hidden></label><button id="history">修订记录</button><button id="export" class="primary">导出审核稿</button></div></header>
+<div id="notice" role="status" aria-live="polite"></div>
+<main><section class="intro"><div><p class="eyebrow">TRANSLATE WITH CONTEXT</p><h1 id="title">让每一句，都有据可依。</h1><p>先确认人物与指代，再打磨译文。未知不是错误，未经确认的猜测才是。</p></div><div id="stats"></div></section>
+<nav><button id="tab-lines" class="selected">剧本审校</button><button id="tab-characters">人物档案</button><span>结构化 JSON 交换格式 · 尚非游戏引擎补丁</span></nav>
+<section id="lines-view"><div class="filters"><select id="route" aria-label="路线"></select><label><input type="checkbox" id="errors-only"> 仅显示待处理</label><span id="count"></span></div><div class="workspace"><aside id="line-list"></aside><article id="editor"><div class="empty"><h2>从一个场景开始</h2><p>载入演示查看译名、指代和控制码检查，或导入自己的结构化剧本。</p><p>首版为人工翻译与规则审校工具，未接入自动翻译模型。</p></div></article></div></section>
+<section id="characters-view" hidden></section>
+<section class="footnote">检查范围：已标注的实体提及与常见占位控制码。未标注指代、语义和剧情保密性仍需人工审校；人物属性不会自动决定每处代词。</section>
+</main><dialog id="history-dialog"><h2>修订记录</h2><div id="history-list"></div><button id="close-history">关闭</button></dialog><script type="module" src="/app.js"></script></body></html>
