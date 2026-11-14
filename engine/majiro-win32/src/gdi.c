@@ -1,5 +1,6 @@
 #include "majiro.h"
 #include <string.h>
+#include <wchar.h>
 
 typedef BOOL (WINAPI *textout_w_t)(HDC, int, int, LPCWSTR, int);
 typedef BOOL (WINAPI *extent_w_t)(HDC, LPCWSTR, int, LPSIZE);
@@ -71,6 +72,45 @@ static void trace_out(int x, int y, const WCHAR *s, int n) {
   k_log("out(%d,%d): %s", x, y, utf8);
 }
 
+/* The engine's typewriter redraws a message by advancing the pointer two
+   bytes (one CP932 char) per frame, so byte-swapping the literals to UTF-8
+   would split multibyte sequences. Translate any full or suffix match
+   instead; the animation only erases glyphs, so the full line stays right. */
+static const char *const k_legacy_jp[] = {
+  "クイックロードします。よろしいですか？",
+  "クイックセーブします。よろしいですか？",
+  "クイックセーブしました",
+  "クイックセーブされていません",
+  "ロードに失敗しました",
+  "ロードするデータを選択してください",
+  "セーブする場所を選択してください",
+  "タイトルに戻ります。よろしいですか？",
+  "終了してよろしいですか？",
+};
+static const WCHAR *const k_legacy_zh[] = {
+  L"要读取快速存档吗？",
+  L"要快速保存吗？",
+  L"快速保存完毕。",
+  L"没有快速存档。",
+  L"读取失败。",
+  L"请选择要读取的数据。",
+  L"请选择要保存的位置。",
+  L"要返回标题画面吗？",
+  L"要退出游戏吗？",
+};
+static const int k_legacy_n = sizeof(k_legacy_jp) / sizeof(k_legacy_jp[0]);
+
+static const WCHAR *match_legacy(const char *s, int n) {
+  int i;
+  for (i = 0; i < k_legacy_n; i++) {
+    int L = (int)strlen(k_legacy_jp[i]);
+    if (n == L && memcmp(s, k_legacy_jp[i], L) == 0) return k_legacy_zh[i];
+    if (n < L && (L - n) % 2 == 0 && memcmp(s, k_legacy_jp[i] + (L - n), n) == 0)
+      return k_legacy_zh[i];
+  }
+  return NULL;
+}
+
 static BOOL WINAPI my_textout_a(HDC hdc, int x, int y, LPCSTR s, int n) {
   WCHAR buf[2048];
   int w, raw_n;
@@ -78,9 +118,16 @@ static BOOL WINAPI my_textout_a(HDC hdc, int x, int y, LPCSTR s, int n) {
   raw_n = n < 0 ? (int)strlen(s) : n;
   w = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s, raw_n, buf, 2048);
   if (w <= 0) {
+    const WCHAR *zh = match_legacy(s, raw_n);
     log_legacy(s, raw_n);
-    w = to_wide(s, raw_n, buf, 2048);
-    if (w <= 0) return real_textout_a ? real_textout_a(hdc, x, y, s, n) : 0;
+    if (zh) {
+      w = (int)wcslen(zh);
+      if (w > 2048) w = 2048;
+      memcpy(buf, zh, (size_t)w * sizeof(WCHAR));
+    } else {
+      w = to_wide(s, raw_n, buf, 2048);
+      if (w <= 0) return real_textout_a ? real_textout_a(hdc, x, y, s, n) : 0;
+    }
   }
   if (w >= 9 && wcsncmp(buf, L"文字サンプルです。", 9) == 0) {
     const WCHAR sample[] = L"中文字体示例。１２３４";
