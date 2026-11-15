@@ -76,17 +76,20 @@ static void trace_out(int x, int y, const WCHAR *s, int n) {
    bytes (one CP932 char) per frame, so byte-swapping the literals to UTF-8
    would split multibyte sequences. Translate any full or suffix match
    instead; the animation only erases glyphs, so the full line stays right. */
-static const char *const k_legacy_jp[] = {
-  "クイックロードします。よろしいですか？",
-  "クイックセーブします。よろしいですか？",
-  "クイックセーブしました",
-  "クイックセーブされていません",
-  "ロードに失敗しました",
-  "ロードするデータを選択してください",
-  "セーブする場所を選択してください",
-  "タイトルに戻ります。よろしいですか？",
-  "終了してよろしいですか？",
+static const WCHAR *const k_legacy_jp_w[] = {
+  L"クイックロードします。よろしいですか？",
+  L"クイックセーブします。よろしいですか？",
+  L"クイックセーブしました",
+  L"クイックセーブされていません",
+  L"ロードに失敗しました",
+  L"ロードするデータを選択してください",
+  L"セーブする場所を選択してください",
+  L"タイトルに戻ります。よろしいですか？",
+  L"終了してよろしいですか？",
 };
+/* Source literals are UTF-8; the engine hands over CP932 bytes, so convert
+   the table once at init instead of comparing mismatched byte strings. */
+static char k_legacy_jp[9][64];
 static const WCHAR *const k_legacy_zh[] = {
   L"要读取快速存档吗？",
   L"要快速保存吗？",
@@ -98,7 +101,14 @@ static const WCHAR *const k_legacy_zh[] = {
   L"要返回标题画面吗？",
   L"要退出游戏吗？",
 };
-static const int k_legacy_n = sizeof(k_legacy_jp) / sizeof(k_legacy_jp[0]);
+static const int k_legacy_n = sizeof(k_legacy_jp_w) / sizeof(k_legacy_jp_w[0]);
+
+static void init_legacy(void) {
+  int i;
+  for (i = 0; i < k_legacy_n; i++)
+    WideCharToMultiByte(932, 0, k_legacy_jp_w[i], -1, k_legacy_jp[i], sizeof(k_legacy_jp[i]),
+                        NULL, NULL);
+}
 
 static const WCHAR *match_legacy(const char *s, int n) {
   int i;
@@ -236,6 +246,7 @@ void k_gdi_init(void) {
     if (n > 0 && n < sizeof(env)) MultiByteToWideChar(CP_UTF8, 0, env, -1, g_face, LF_FACESIZE);
   }
   g_trace = GetEnvironmentVariableA("KOTOBA_TRACE", NULL, 0) > 0;
+  init_legacy();
 
   k_iat_hook("GDI32.dll", "TextOutA", (void *)my_textout_a);
   k_iat_hook("GDI32.dll", "GetTextExtentPoint32A", (void *)my_extent_a);

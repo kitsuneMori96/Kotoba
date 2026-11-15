@@ -104,6 +104,12 @@ static BOOL WINAPI my_settext_a(HWND hwnd, LPCSTR text) {
 
 static void translate_menu(HMENU m);
 
+static const struct { const WCHAR *ja, *zh; } k_title_zh[] = {
+  {L"ルリのかさね ～いもうと物語り～", L"琉璃交错 ～妹物语～"},
+  {L"ルリのかさね|～いもうと物語り～", L"琉璃交错 ～妹物语～"},
+  {L"バージョン情報", L"版本信息"},
+};
+
 /* The title comes from TITLEBAR in majiro.env as CP932 bytes; the stock A
    path would decode it with CP936 and show mojibake. */
 static HWND WINAPI my_cw_ex_a(DWORD ex, LPCSTR cls, LPCSTR title, DWORD style, int x, int y,
@@ -126,7 +132,10 @@ static HWND WINAPI my_cw_ex_a(DWORD ex, LPCSTR cls, LPCSTR title, DWORD style, i
     int tw = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, title, -1, title_w, 512);
     if (tw <= 0) tw = MultiByteToWideChar(932, 0, title, -1, title_w, 512);
     if (tw > 0) {
+      size_t k;
       title_p = title_w;
+      for (k = 0; k < sizeof(k_title_zh) / sizeof(k_title_zh[0]); k++)
+        if (wcscmp(title_w, k_title_zh[k].ja) == 0) { title_p = k_title_zh[k].zh; break; }
       k_log("title: %s", title);
     }
   }
