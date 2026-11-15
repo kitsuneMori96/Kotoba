@@ -25,9 +25,16 @@ fi
     awk '
       /^\[Ordinal\/Name Pointer\] Table/ { names = 1; next }
       names && /^[[:space:]]*\[[[:space:]]*[0-9]+\][[:space:]]+[^[:space:]]/ {
-        print $3 "=winmm_orig." $3
+        fn = $3
+        if (fn == "mciSendCommandA" || fn == "mciSendCommandW" ||
+            fn == "mciSendStringA" || fn == "mciSendStringW") next
+        print fn "=winmm_orig." fn
       }
     '
+  echo "mciSendCommandA=kotoba_mciSendCommandA"
+  echo "mciSendCommandW=kotoba_mciSendCommandW"
+  echo "mciSendStringA=kotoba_mciSendStringA"
+  echo "mciSendStringW=kotoba_mciSendStringW"
 } > "$OUT/winmm.def"
 
 rm -f "$OUT/winmm_orig.dll"
@@ -36,7 +43,7 @@ chmod u+w "$OUT/winmm_orig.dll"
 
 "$CC" -shared -O2 -s -Wall -Wextra -Wno-cast-function-type \
   -o "$OUT/winmm.dll" \
-  src/dllmain.c src/hooks.c src/utf8.c src/gdi.c src/fslog.c \
+  src/dllmain.c src/hooks.c src/utf8.c src/gdi.c src/fslog.c src/mci.c \
   "$OUT/winmm.def" \
   -lgdi32 -static-libgcc -Wl,--no-insert-timestamp
 

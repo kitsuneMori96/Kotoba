@@ -64,11 +64,20 @@ static HANDLE WINAPI my_create_w(LPCWSTR path, DWORD access, DWORD share,
                                  LPSECURITY_ATTRIBUTES sa, DWORD disp, DWORD flags,
                                  HANDLE tmpl) {
   char utf8[MAX_PATH * 3];
+  HANDLE h;
+  int logit = 0;
   if (path) {
     int n = WideCharToMultiByte(CP_UTF8, 0, path, -1, utf8, sizeof(utf8), NULL, NULL);
-    if (n > 0 && interesting(utf8)) k_log("openW: %s", utf8);
+    if (n > 0 && interesting(utf8)) logit = 1;
   }
-  return real_create_w(path, access, share, sa, disp, flags, tmpl);
+  h = real_create_w(path, access, share, sa, disp, flags, tmpl);
+  if (logit) {
+    if (h == INVALID_HANDLE_VALUE)
+      k_log("openW: %s -> FAIL err=%lu", utf8, GetLastError());
+    else
+      k_log("openW: %s -> ok", utf8);
+  }
+  return h;
 }
 
 static HANDLE WINAPI my_create_a(LPCSTR path, DWORD access, DWORD share,
