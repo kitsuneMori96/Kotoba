@@ -110,15 +110,47 @@ static void init_legacy(void) {
                         NULL, NULL);
 }
 
-static const WCHAR *match_legacy(const char *s, int n) {
+static int find_legacy(const char *s, int n) {
   int i;
   for (i = 0; i < k_legacy_n; i++) {
     int L = (int)strlen(k_legacy_jp[i]);
-    if (n == L && memcmp(s, k_legacy_jp[i], L) == 0) return k_legacy_zh[i];
-    if (n < L && (L - n) % 2 == 0 && memcmp(s, k_legacy_jp[i] + (L - n), n) == 0)
-      return k_legacy_zh[i];
+    if (n == L && memcmp(s, k_legacy_jp[i], L) == 0) return i;
+    if (n < L && n > 0 && (L - n) % 2 == 0 && memcmp(s, k_legacy_jp[i] + (L - n), n) == 0)
+      return i;
   }
-  return NULL;
+  return -1;
+}
+
+/* The engine reveals and erases these banners one glyph at a time: every
+   call uses the same text origin plus a clip rect for one character cell.
+   Map each cell to a single Chinese glyph (centered over the original cell
+   count); whole-text draws paint the full line instead. */
+static BOOL draw_legacy(HDC hdc, int x, int idx, int raw_n, WCHAR *buf, int *w) {
+  const WCHAR *jp = k_legacy_jp_w[idx];
+  const WCHAR *zh = k_legacy_zh[idx];
+  int N = (int)wcslen(jp), M = (int)wcslen(zh);
+  RECT clip;
+  SIZE sz;
+  int cw, align, left0, i, at;
+  if (!GetClipBox(hdc, &clip)) return FALSE;
+  if (!real_extent_w(hdc, jp, 1, &sz) || sz.cx <= 0) return FALSE;
+  cw = clip.right - clip.left;
+  if (cw < sz.cx * 2) {
+    if (raw_n > 2) { *w = 0; return TRUE; }
+    align = GetTextAlign(hdc);
+    left0 = x;
+    if (align & TA_CENTER) left0 = x - N * sz.cx / 2;
+    else if (align & TA_RIGHT) left0 = x - N * sz.cx;
+    i = (clip.left - left0 + sz.cx / 2) / sz.cx;
+    at = i - (N - M) / 2;
+    if (at < 0 || at >= M) { *w = 0; return TRUE; }
+    buf[0] = zh[at];
+    *w = 1;
+    return TRUE;
+  }
+  *w = M;
+  memcpy(buf, zh, (size_t)M * sizeof(WCHAR));
+  return TRUE;
 }
 
 static BOOL WINAPI my_textout_a(HDC hdc, int x, int y, LPCSTR s, int n) {
@@ -128,12 +160,10 @@ static BOOL WINAPI my_textout_a(HDC hdc, int x, int y, LPCSTR s, int n) {
   raw_n = n < 0 ? (int)strlen(s) : n;
   w = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s, raw_n, buf, 2048);
   if (w <= 0) {
-    const WCHAR *zh = match_legacy(s, raw_n);
+    int idx = find_legacy(s, raw_n);
     log_legacy(s, raw_n);
-    if (zh) {
-      w = (int)wcslen(zh);
-      if (w > 2048) w = 2048;
-      memcpy(buf, zh, (size_t)w * sizeof(WCHAR));
+    if (idx >= 0 && draw_legacy(hdc, x, idx, raw_n, buf, &w)) {
+      if (w == 0) return TRUE;
     } else {
       w = to_wide(s, raw_n, buf, 2048);
       if (w <= 0) return real_textout_a ? real_textout_a(hdc, x, y, s, n) : 0;

@@ -38,7 +38,7 @@ chmod u+w "$OUT/winmm_orig.dll"
   -o "$OUT/winmm.dll" \
   src/dllmain.c src/hooks.c src/utf8.c src/gdi.c src/fslog.c \
   "$OUT/winmm.def" \
-  -static-libgcc -Wl,--no-insert-timestamp
+  -lgdi32 -static-libgcc -Wl,--no-insert-timestamp
 
 echo "built $OUT/winmm.dll"
 grep -c '=winmm_orig\.' "$OUT/winmm.def" | sed 's/^/forwarded exports: /'

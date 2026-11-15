@@ -92,23 +92,31 @@ static DWORD WINAPI my_attrs_a(LPCSTR path) {
   return real_attrs_a(path);
 }
 
-static BOOL WINAPI my_settext_a(HWND hwnd, LPCSTR text) {
-  WCHAR buf[1024];
-  int w;
-  if (!text) return real_settext_w(hwnd, NULL);
-  w = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, buf, 1024);
-  if (w <= 0) w = MultiByteToWideChar(932, 0, text, -1, buf, 1024);
-  if (w <= 0) return 0;
-  return real_settext_w(hwnd, buf);
-}
-
-static void translate_menu(HMENU m);
-
 static const struct { const WCHAR *ja, *zh; } k_title_zh[] = {
   {L"ルリのかさね ～いもうと物語り～", L"琉璃交错 ～妹物语～"},
   {L"ルリのかさね|～いもうと物語り～", L"琉璃交错 ～妹物语～"},
   {L"バージョン情報", L"版本信息"},
 };
+
+static BOOL WINAPI my_settext_a(HWND hwnd, LPCSTR text) {
+  WCHAR buf[1024];
+  int w;
+  size_t k;
+  if (!text) return real_settext_w(hwnd, NULL);
+  w = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, buf, 1024);
+  if (w <= 0) w = MultiByteToWideChar(932, 0, text, -1, buf, 1024);
+  if (w <= 0) return 0;
+  {
+    char u8[512];
+    if (WideCharToMultiByte(CP_UTF8, 0, buf, -1, u8, sizeof(u8), NULL, NULL) > 0)
+      k_log("settext: %s", u8);
+  }
+  for (k = 0; k < sizeof(k_title_zh) / sizeof(k_title_zh[0]); k++)
+    if (wcscmp(buf, k_title_zh[k].ja) == 0) return real_settext_w(hwnd, k_title_zh[k].zh);
+  return real_settext_w(hwnd, buf);
+}
+
+static void translate_menu(HMENU m);
 
 /* The title comes from TITLEBAR in majiro.env as CP932 bytes; the stock A
    path would decode it with CP936 and show mojibake. */
