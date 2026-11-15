@@ -130,11 +130,9 @@ static BOOL draw_legacy(int full_n, int raw_n, int idx, WCHAR *buf, int *w) {
   int N = (int)wcslen(jp), M = (int)wcslen(zh);
   int L = (int)strlen(k_legacy_jp[idx]);
   int i, at;
-  if (raw_n == full_n) {
-    *w = M;
-    memcpy(buf, zh, (size_t)M * sizeof(WCHAR));
-    return TRUE;
-  }
+  /* The trailing whole-string call is blitted as a single cell slice too;
+     drawing the full line there leaks its middle glyph past the line end. */
+  if (raw_n == full_n) { *w = 0; return TRUE; }
   i = (L - full_n) / 2;
   at = i - (N - M) / 2;
   if (at < 0 || at >= M) { *w = 0; return TRUE; }
