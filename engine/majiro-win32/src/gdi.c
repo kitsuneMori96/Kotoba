@@ -131,18 +131,25 @@ static BOOL draw_legacy(HDC hdc, int x, int idx, int raw_n, WCHAR *buf, int *w) 
   int N = (int)wcslen(jp), M = (int)wcslen(zh);
   RECT clip;
   SIZE sz;
-  int cw, align, left0, i, at;
-  if (!GetClipBox(hdc, &clip)) return FALSE;
-  if (!real_extent_w(hdc, jp, 1, &sz) || sz.cx <= 0) return FALSE;
+  int cw, align, left0, i, at, cb;
+  cb = GetClipBox(hdc, &clip);
+  if (!cb) { k_log("dbg n=%d clip=FAIL", raw_n); return FALSE; }
+  if (!real_extent_w(hdc, jp, 1, &sz) || sz.cx <= 0) {
+    k_log("dbg n=%d extent=FAIL", raw_n);
+    return FALSE;
+  }
   cw = clip.right - clip.left;
+  align = GetTextAlign(hdc);
+  k_log("dbg n=%d clip=%d,%d,%d,%d cb=%d cx=%d align=%x", raw_n, clip.left, clip.top,
+        clip.right, clip.bottom, cb, sz.cx, align);
   if (cw < sz.cx * 2) {
     if (raw_n > 2) { *w = 0; return TRUE; }
-    align = GetTextAlign(hdc);
     left0 = x;
     if (align & TA_CENTER) left0 = x - N * sz.cx / 2;
     else if (align & TA_RIGHT) left0 = x - N * sz.cx;
     i = (clip.left - left0 + sz.cx / 2) / sz.cx;
     at = i - (N - M) / 2;
+    k_log("dbg cell i=%d at=%d", i, at);
     if (at < 0 || at >= M) { *w = 0; return TRUE; }
     buf[0] = zh[at];
     *w = 1;

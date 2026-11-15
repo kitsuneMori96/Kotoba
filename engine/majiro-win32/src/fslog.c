@@ -1,6 +1,7 @@
 #include "majiro.h"
 #include <string.h>
 #include <wchar.h>
+#include <stdlib.h>
 
 typedef HANDLE (WINAPI *create_w_t)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD,
                                     DWORD, HANDLE);
@@ -282,12 +283,62 @@ static INT_PTR CALLBACK font_dialog_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
   return result;
 }
 
+typedef struct { DLGPROC proc; LPARAM param; } about_dialog_ctx;
+
+static INT_PTR CALLBACK about_dialog_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+  about_dialog_ctx *ctx;
+  INT_PTR result;
+  if (msg == WM_INITDIALOG) {
+    ctx = (about_dialog_ctx *)lp;
+    SetPropW(hwnd, L"KotobaAboutDialog", (HANDLE)ctx);
+    result = ctx->proc(hwnd, msg, wp, ctx->param);
+    SetWindowTextW(hwnd, L"版本信息");
+    return result;
+  }
+  ctx = (about_dialog_ctx *)GetPropW(hwnd, L"KotobaAboutDialog");
+  if (!ctx) return FALSE;
+  result = ctx->proc(hwnd, msg, wp, lp);
+  if (msg == WM_NCDESTROY) {
+    RemovePropW(hwnd, L"KotobaAboutDialog");
+    free(ctx);
+  }
+  return result;
+}
+
 static INT_PTR WINAPI my_dialog_a(HINSTANCE inst, LPCSTR name, HWND parent, DLGPROC proc, LPARAM param) {
   if (name && HIWORD(name) && strcmp(name, "SELFONT") == 0 && proc) {
     font_dialog_ctx ctx = {proc, param};
     return DialogBoxParamW(inst, L"SELFONT", parent, font_dialog_proc, (LPARAM)&ctx);
   }
+  if (name && HIWORD(name) && strncmp(name, "ABOUTDIALOG", 11) == 0 && proc) {
+    /* Resource templates are Unicode; the A entry round-trips them through
+       CP_ACP and mojibakes the caption. Create via W and retitle in init. */
+    about_dialog_ctx *ctx = (about_dialog_ctx *)malloc(sizeof(*ctx));
+    WCHAR wn[64];
+    if (!ctx) return real_dialog_a(inst, name, parent, proc, param);
+    ctx->proc = proc;
+    ctx->param = param;
+    MultiByteToWideChar(CP_ACP, 0, name, -1, wn, 64);
+    k_log("dialogA: %s", name);
+    return DialogBoxParamW(inst, wn, parent, about_dialog_proc, (LPARAM)ctx);
+  }
   return real_dialog_a(inst, name, parent, proc, param);
+}
+
+static HWND (WINAPI *real_createdlg_a)(HINSTANCE, LPCSTR, HWND, DLGPROC, LPARAM);
+static HWND WINAPI my_createdlg_a(HINSTANCE inst, LPCSTR name, HWND parent, DLGPROC proc, LPARAM param) {
+  if (name && HIWORD(name) && strncmp(name, "ABOUTDIALOG", 11) == 0 && proc) {
+    about_dialog_ctx *ctx = (about_dialog_ctx *)malloc(sizeof(*ctx));
+    WCHAR wn[64];
+    if (!ctx) return real_createdlg_a(inst, name, parent, proc, param);
+    ctx->proc = proc;
+    ctx->param = param;
+    MultiByteToWideChar(CP_ACP, 0, name, -1, wn, 64);
+    k_log("createdlgA: %s", name);
+    return CreateDialogParamW(inst, wn, parent, about_dialog_proc, (LPARAM)ctx);
+  }
+  if (name && HIWORD(name)) k_log("createdlgA: %s", name);
+  return real_createdlg_a(inst, name, parent, proc, param);
 }
 
 void k_fs_init(void) {
@@ -315,4 +366,6 @@ void k_fs_init(void) {
   if (real_setmenu) k_iat_hook("user32.dll", "SetMenu", (void *)my_setmenu);
   if (u32) real_dialog_a = (INT_PTR (WINAPI *)(HINSTANCE, LPCSTR, HWND, DLGPROC, LPARAM))GetProcAddress(u32, "DialogBoxParamA");
   if (real_dialog_a) k_iat_hook("user32.dll", "DialogBoxParamA", (void *)my_dialog_a);
+  if (u32) real_createdlg_a = (HWND(WINAPI *)(HINSTANCE, LPCSTR, HWND, DLGPROC, LPARAM))GetProcAddress(u32, "CreateDialogParamA");
+  if (real_createdlg_a) k_iat_hook("user32.dll", "CreateDialogParamA", (void *)my_createdlg_a);
 }
