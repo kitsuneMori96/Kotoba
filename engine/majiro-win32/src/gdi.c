@@ -57,7 +57,7 @@ static void log_legacy(const char *s, int n) {
   if (g_seen_n >= 96) return;
   memcpy(g_seen[g_seen_n], tmp, len + 1);
   g_seen_n++;
-  k_log("legacy: %s", s);
+  k_log("legacy: %s", tmp);
 }
 
 static int g_trace;
@@ -121,42 +121,25 @@ static int find_legacy(const char *s, int n) {
   return -1;
 }
 
-/* The engine reveals and erases these banners one glyph at a time: every
-   call uses the same text origin plus a clip rect for one character cell.
-   Map each cell to a single Chinese glyph (centered over the original cell
-   count); whole-text draws paint the full line instead. */
-static BOOL draw_legacy(HDC hdc, int x, int idx, int raw_n, WCHAR *buf, int *w) {
+/* The engine reveals these banners one glyph per call: n=2 but the pointer
+   sits inside the full NUL-terminated CP932 string, so the remaining length
+   identifies the cell index. Map each cell to one centered Chinese glyph. */
+static BOOL draw_legacy(int full_n, int raw_n, int idx, WCHAR *buf, int *w) {
   const WCHAR *jp = k_legacy_jp_w[idx];
   const WCHAR *zh = k_legacy_zh[idx];
   int N = (int)wcslen(jp), M = (int)wcslen(zh);
-  RECT clip;
-  SIZE sz;
-  int cw, align, left0, i, at, cb;
-  cb = GetClipBox(hdc, &clip);
-  if (!cb) { k_log("dbg n=%d clip=FAIL", raw_n); return FALSE; }
-  if (!real_extent_w(hdc, jp, 1, &sz) || sz.cx <= 0) {
-    k_log("dbg n=%d extent=FAIL", raw_n);
-    return FALSE;
-  }
-  cw = clip.right - clip.left;
-  align = GetTextAlign(hdc);
-  k_log("dbg n=%d clip=%d,%d,%d,%d cb=%d cx=%d align=%x", raw_n, clip.left, clip.top,
-        clip.right, clip.bottom, cb, sz.cx, align);
-  if (cw < sz.cx * 2) {
-    if (raw_n > 2) { *w = 0; return TRUE; }
-    left0 = x;
-    if (align & TA_CENTER) left0 = x - N * sz.cx / 2;
-    else if (align & TA_RIGHT) left0 = x - N * sz.cx;
-    i = (clip.left - left0 + sz.cx / 2) / sz.cx;
-    at = i - (N - M) / 2;
-    k_log("dbg cell i=%d at=%d", i, at);
-    if (at < 0 || at >= M) { *w = 0; return TRUE; }
-    buf[0] = zh[at];
-    *w = 1;
+  int L = (int)strlen(k_legacy_jp[idx]);
+  int i, at;
+  if (raw_n == full_n) {
+    *w = M;
+    memcpy(buf, zh, (size_t)M * sizeof(WCHAR));
     return TRUE;
   }
-  *w = M;
-  memcpy(buf, zh, (size_t)M * sizeof(WCHAR));
+  i = (L - full_n) / 2;
+  at = i - (N - M) / 2;
+  if (at < 0 || at >= M) { *w = 0; return TRUE; }
+  buf[0] = zh[at];
+  *w = 1;
   return TRUE;
 }
 
@@ -167,9 +150,12 @@ static BOOL WINAPI my_textout_a(HDC hdc, int x, int y, LPCSTR s, int n) {
   raw_n = n < 0 ? (int)strlen(s) : n;
   w = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s, raw_n, buf, 2048);
   if (w <= 0) {
-    int idx = find_legacy(s, raw_n);
+    int full_n = (int)strlen(s);
+    int idx;
+    if (full_n < raw_n || full_n > 128 || (full_n - raw_n) % 2 != 0) full_n = raw_n;
+    idx = find_legacy(s, full_n);
     log_legacy(s, raw_n);
-    if (idx >= 0 && draw_legacy(hdc, x, idx, raw_n, buf, &w)) {
+    if (idx >= 0 && draw_legacy(full_n, raw_n, idx, buf, &w)) {
       if (w == 0) return TRUE;
     } else {
       w = to_wide(s, raw_n, buf, 2048);
