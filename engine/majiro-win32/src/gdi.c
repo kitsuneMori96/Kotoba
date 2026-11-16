@@ -72,10 +72,7 @@ static void trace_out(int x, int y, const WCHAR *s, int n) {
   k_log("out(%d,%d): %s", x, y, utf8);
 }
 
-/* The engine's typewriter redraws a message by advancing the pointer two
-   bytes (one CP932 char) per frame, so byte-swapping the literals to UTF-8
-   would split multibyte sequences. Translate any full or suffix match
-   instead; the animation only erases glyphs, so the full line stays right. */
+/* Shared suffixes must keep the identity of the original full-string buffer. */
 static const WCHAR *const k_legacy_jp_w[] = {
   L"クイックロードします。よろしいですか？",
   L"クイックセーブします。よろしいですか？",
@@ -110,12 +107,24 @@ static void init_legacy(void) {
                         NULL, NULL);
 }
 
+static const char *k_legacy_source[9];
+
 static int find_legacy(const char *s, int n) {
-  int i;
+  int i, j;
   for (i = 0; i < k_legacy_n; i++) {
     int L = (int)strlen(k_legacy_jp[i]);
-    if (n == L && memcmp(s, k_legacy_jp[i], L) == 0) return i;
-    if (n < L && n > 0 && (L - n) % 2 == 0 && memcmp(s, k_legacy_jp[i] + (L - n), n) == 0)
+    if (n == L && memcmp(s, k_legacy_jp[i], L) == 0) {
+      for (j = 0; j < k_legacy_n; j++)
+        if (k_legacy_source[j] == s) k_legacy_source[j] = NULL;
+      k_legacy_source[i] = s;
+      return i;
+    }
+  }
+  for (i = 0; i < k_legacy_n; i++) {
+    int L = (int)strlen(k_legacy_jp[i]);
+    if (k_legacy_source[i] && n < L && n > 0 && (L - n) % 2 == 0 &&
+        s == k_legacy_source[i] + (L - n) &&
+        memcmp(s, k_legacy_jp[i] + (L - n), n) == 0)
       return i;
   }
   return -1;
