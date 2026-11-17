@@ -14,6 +14,9 @@ assert 'ゲームを終了します。よろしいですか？' in strings
 assert translations[strings.index('ゲームを終了します。よろしいですか？')] == '要退出游戏吗？'
 encoded = [text.encode('cp932') for text in strings]
 table = ',\n'.join('"' + ''.join(f'\\x{b:02x}' for b in text) + '"' for text in encoded)
+u8_encoded = [text.encode('utf-8') for text in strings]
+assert all(len(ch.encode('utf-8')) == 3 for text in strings for ch in text)
+u8_table = ',\n'.join('"' + ''.join(f'\\x{b:02x}' for b in text) + '"' for text in u8_encoded)
 start = source.index('static const char *k_legacy_source')
 end = source.index('\n/* The engine reveals', start)
 matcher = source[start:end]
@@ -28,6 +31,7 @@ typedef int BOOL;
 #define TRUE 1
 TABLE
 WIDE_TABLES
+U8_TABLE
 MATCHER
 DRAW
 int main(void) {
@@ -69,10 +73,39 @@ int main(void) {
   memset(k_legacy_source, 0, sizeof(k_legacy_source));
   strcpy(reused, k_legacy_jp[7]);
   assert(find_legacy(reused + 2, strlen(reused) - 2) == -1);
-  printf("PASS: all %d banners, glyph output, interleaved suffixes, reused buffer, unbound suffix, dialog whole-string\n", k_legacy_n);
+  {
+    char u8buf[sizeof(k_legacy_jp) / sizeof(k_legacy_jp[0])][128];
+    int c2;
+    for (i = 0; i < k_legacy_n; i++) {
+      int N = (int)wcslen(k_legacy_jp_w[i]);
+      int cell, off, full_n, wn;
+      strcpy(u8buf[i], k_legacy_u8[i]);
+      memset(k_legacy_source_w, 0, sizeof(k_legacy_source_w));
+      written = 0;
+      for (cell = 0; cell < N; cell++) {
+        off = cell * 3;
+        full_n = (int)strlen(u8buf[i] + off);
+        wn = N - cell;
+        assert(find_legacy_w(k_legacy_jp_w[i] + cell, wn, u8buf[i] + off, full_n, &c2) == i);
+        assert(c2 == cell);
+        assert(draw_legacy_w(full_n, 3, i, cell, glyph, &w));
+        assert(w == 0 || w == 1);
+        if (w) rendered[written++] = glyph[0];
+      }
+      rendered[written] = 0;
+      assert(wcscmp(rendered, k_legacy_zh[i]) == 0);
+      assert(draw_legacy_w(strlen(u8buf[i]), strlen(u8buf[i]), i, 0, glyph, &w));
+      assert(w == 0);
+    }
+    memset(k_legacy_source_w, 0, sizeof(k_legacy_source_w));
+    strcpy(u8buf[0], k_legacy_u8[7]);
+    assert(find_legacy_w(k_legacy_jp_w[7] + 1, wcslen(k_legacy_jp_w[7]) - 1, u8buf[0] + 3, strlen(u8buf[0] + 3), &c2) == -1);
+  }
+  printf("PASS: all %d banners, glyph output, interleaved suffixes, reused buffer, unbound suffix, dialog whole-string, UTF-8 per-glyph\n", k_legacy_n);
 }
 '''.replace('TABLE\n', f'static const char k_legacy_jp[{len(strings)}][64] = {{{table}}};\nstatic const int k_legacy_n = {len(strings)};\n', 1)
 program = program.replace('WIDE_TABLES', f'static const WCHAR *const k_legacy_jp_w[] = {{{jp}}};\nstatic const WCHAR *const k_legacy_zh[] = {{{zh}}};')
+program = program.replace('U8_TABLE', f'static const char k_legacy_u8[{len(strings)}][128] = {{{u8_table}}};')
 program = program.replace('MATCHER', matcher).replace('DRAW', draw)
 with tempfile.TemporaryDirectory(prefix='kotoba-legacy-') as tmp:
     c = Path(tmp) / 'test.c'

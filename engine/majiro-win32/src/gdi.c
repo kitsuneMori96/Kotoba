@@ -182,6 +182,49 @@ static BOOL draw_legacy(int full_n, int raw_n, int idx, WCHAR *buf, int *w) {
   return TRUE;
 }
 
+/* Script-driven banners arrive as UTF-8 and take the w>0 path above, so the
+   CP932 table never sees them. Match the remaining wide string against the wide
+   table; the cell index counts wide glyphs instead of CP932 byte pairs. */
+static const char *k_legacy_source_w[sizeof(k_legacy_jp_w) / sizeof(k_legacy_jp_w[0])];
+
+static int find_legacy_w(const WCHAR *wbuf, int wn, const char *s, int full_n, int *cell) {
+  int i, j;
+  if (wn <= 0) return -1;
+  for (i = 0; i < k_legacy_n; i++) {
+    int N = (int)wcslen(k_legacy_jp_w[i]);
+    if (wn == N && memcmp(wbuf, k_legacy_jp_w[i], N * sizeof(WCHAR)) == 0) {
+      for (j = 0; j < k_legacy_n; j++)
+        if (k_legacy_source_w[j] == s) k_legacy_source_w[j] = NULL;
+      k_legacy_source_w[i] = s;
+      *cell = 0;
+      return i;
+    }
+  }
+  for (i = 0; i < k_legacy_n; i++) {
+    int N = (int)wcslen(k_legacy_jp_w[i]);
+    if (k_legacy_source_w[i] && wn < N && wn > 0 &&
+        s == k_legacy_source_w[i] + ((int)strlen(k_legacy_source_w[i]) - full_n) &&
+        memcmp(wbuf, k_legacy_jp_w[i] + (N - wn), wn * sizeof(WCHAR)) == 0) {
+      *cell = N - wn;
+      return i;
+    }
+  }
+  return -1;
+}
+
+static BOOL draw_legacy_w(int full_n, int raw_n, int idx, int cell, WCHAR *buf, int *w) {
+  const WCHAR *zh = k_legacy_zh[idx];
+  int N = (int)wcslen(k_legacy_jp_w[idx]);
+  int M = (int)wcslen(zh);
+  int at;
+  if (raw_n == full_n) { *w = 0; return TRUE; }
+  at = cell - (N - M) / 2;
+  if (at < 0 || at >= M) { *w = 0; return TRUE; }
+  buf[0] = zh[at];
+  *w = 1;
+  return TRUE;
+}
+
 static BOOL WINAPI my_textout_a(HDC hdc, int x, int y, LPCSTR s, int n) {
   WCHAR buf[2048];
   int w, raw_n;
@@ -199,6 +242,17 @@ static BOOL WINAPI my_textout_a(HDC hdc, int x, int y, LPCSTR s, int n) {
     } else {
       w = to_wide(s, raw_n, buf, 2048);
       if (w <= 0) return real_textout_a ? real_textout_a(hdc, x, y, s, n) : 0;
+    }
+  } else {
+    int full_n = (int)strlen(s);
+    if (full_n >= raw_n && full_n <= 128) {
+      WCHAR wbuf[2048];
+      int wn = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s, full_n, wbuf, 2048);
+      int cell, idx = find_legacy_w(wbuf, wn, s, full_n, &cell);
+      if (idx >= 0 && draw_legacy_w(full_n, raw_n, idx, cell, buf, &w)) {
+        if (g_trace) k_log("legacy_w: idx=%d cell=%d full_n=%d raw_n=%d w=%d", idx, cell, full_n, raw_n, w);
+        if (w == 0) return TRUE;
+      }
     }
   }
   if (w >= 9 && wcsncmp(buf, L"文字サンプルです。", 9) == 0) {
