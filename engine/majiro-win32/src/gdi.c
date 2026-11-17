@@ -16,6 +16,7 @@ typedef int (WINAPI *addfont_a_t)(LPCSTR);
 
 typedef int (WINAPI *msgbox_a_t)(HWND, LPCSTR, LPCSTR, UINT);
 typedef int (WINAPI *msgbox_w_t)(HWND, LPCWSTR, LPCWSTR, UINT);
+typedef FARPROC (WINAPI *getproc_t)(HMODULE, LPCSTR);
 
 static textout_w_t real_textout_w;
 static extent_w_t real_extent_w;
@@ -31,6 +32,7 @@ static addfont_a_t real_addfont_a;
 
 static msgbox_a_t real_msgbox_a;
 static msgbox_w_t real_msgbox_w;
+static getproc_t real_getproc;
 
 static WCHAR g_face[LF_FACESIZE];
 
@@ -145,6 +147,17 @@ static int legacy_exact(const char *s, int n) {
   for (i = 0; i < k_legacy_n; i++) {
     int L = (int)strlen(k_legacy_jp[i]);
     if (n == L && memcmp(s, k_legacy_jp[i], L) == 0) return i;
+  }
+  return -1;
+}
+
+/* Wide variant: the engine resolves MessageBoxW via GetProcAddress and hands
+   over an already-converted wide sentence, so match the wide table directly. */
+static int legacy_exact_w(const WCHAR *s, int n) {
+  int i;
+  for (i = 0; i < k_legacy_n; i++) {
+    int L = (int)wcslen(k_legacy_jp_w[i]);
+    if (n == L && memcmp(s, k_legacy_jp_w[i], L * sizeof(WCHAR)) == 0) return i;
   }
   return -1;
 }
@@ -304,13 +317,62 @@ static int WINAPI my_messagebox_a(HWND hwnd, LPCSTR text, LPCSTR caption, UINT t
   return r;
 }
 
+/* The engine resolves MessageBoxW through GetProcAddress and passes an already
+   wide sentence, so the MessageBoxA IAT hook never sees it. Translate here. */
+static int WINAPI my_messagebox_w(HWND hwnd, LPCWSTR text, LPCWSTR caption, UINT type) {
+  WCHAR t[512];
+  DWORD saved = GetLastError();
+  int r, idx, n, m;
+  LPCWSTR body = text;
+  if (!real_msgbox_w) return 0;
+  if (text) {
+    n = (int)wcslen(text);
+    while (n > 0 && (text[n - 1] == L'\n' || text[n - 1] == L'\r' ||
+                     text[n - 1] == L' ' || text[n - 1] == L'\t')) n--;
+    idx = legacy_exact_w(text, n);
+    if (idx >= 0) {
+      m = (int)wcslen(k_legacy_zh[idx]);
+      if (m < 512) {
+        memcpy(t, k_legacy_zh[idx], (m + 1) * sizeof(WCHAR));
+        body = t;
+      }
+    }
+  }
+  if (k_trace_enabled()) {
+    char u8[1024];
+    int k = WideCharToMultiByte(CP_UTF8, 0, body, -1, u8, sizeof(u8), NULL, NULL);
+    if (k > 0) k_log("msgboxW: %s", u8);
+  }
+  SetLastError(saved);
+  r = real_msgbox_w(hwnd, body, caption, type);
+  saved = GetLastError();
+  SetLastError(saved);
+  return r;
+}
+
+/* Hand the engine our MessageBoxW wrapper when it asks USER32 for it; every
+   other lookup forwards untouched. */
+static FARPROC WINAPI my_getproc(HMODULE m, LPCSTR name) {
+  if (real_getproc && (uintptr_t)name > 0xffff && k_readable(name, 1) &&
+      lstrcmpA(name, "MessageBoxW") == 0 && m == GetModuleHandleA("user32.dll")) {
+    if (k_trace_enabled()) k_log("getproc: intercept MessageBoxW");
+    return (FARPROC)my_messagebox_w;
+  }
+  return real_getproc ? real_getproc(m, name) : NULL;
+}
+
 void k_msgbox_init(void) {
   HMODULE u = GetModuleHandleA("user32.dll");
+  HMODULE k = GetModuleHandleA("kernel32.dll");
   if (!u) return;
   real_msgbox_a = (msgbox_a_t)GetProcAddress(u, "MessageBoxA");
   real_msgbox_w = (msgbox_w_t)GetProcAddress(u, "MessageBoxW");
   if (!real_msgbox_w) return;
   k_iat_hook("USER32.dll", "MessageBoxA", (void *)my_messagebox_a);
+  if (k) {
+    real_getproc = (getproc_t)GetProcAddress(k, "GetProcAddress");
+    if (real_getproc) k_iat_hook("KERNEL32.dll", "GetProcAddress", (void *)my_getproc);
+  }
 }
 
 static FARPROC gdi_proc(HMODULE gdi, const char *name) {

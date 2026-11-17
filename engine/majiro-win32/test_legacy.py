@@ -63,6 +63,8 @@ int main(void) {
   for (i = 0; i < k_legacy_n; i++) {
     assert(legacy_exact(buffers[i], strlen(buffers[i])) == i);
     assert(legacy_exact(buffers[i] + 2, strlen(buffers[i]) - 2) == -1);
+    assert(legacy_exact_w(k_legacy_jp_w[i], wcslen(k_legacy_jp_w[i])) == i);
+    assert(legacy_exact_w(k_legacy_jp_w[i] + 1, wcslen(k_legacy_jp_w[i]) - 1) == -1);
   }
   memset(k_legacy_source, 0, sizeof(k_legacy_source));
   strcpy(reused, k_legacy_jp[7]);
