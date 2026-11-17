@@ -235,7 +235,7 @@ typedef struct {
   int len;
   BYTE bytes[64];
 } code_backup;
-static code_backup g_backup[15];
+static code_backup g_backup[24];
 static unsigned g_backup_count;
 
 static int write_bytes(DWORD addr, const BYTE *data, int n) {
@@ -429,6 +429,239 @@ static unsigned long long __cdecl k_name_hash(const char *s) {
   return ~core(~0ULL, p, (unsigned)strlen(p));
 }
 
+/* Diagnostic only: who hands which size to the font factory at 0x447510. */
+static void (*k_factory_resume)(void) __attribute__((used));
+
+static void __attribute__((used)) __cdecl k_factory_log(uintptr_t caller, const unsigned char *s, int factor, uintptr_t frame) {
+  const DWORD *f;
+  if (!k_readable(s, 0x30)) return;
+  f = (const DWORD *)s;
+  k_log("factory: caller=+0x%08lx struct=%p f20=%08lx f24=%08lx h=%ld w=%ld factor=%d",
+        (unsigned long)((const BYTE *)caller - g_base), (const void *)s,
+        (unsigned long)f[0x20 / 4], (unsigned long)f[0x24 / 4],
+        (long)f[0x28 / 4], (long)f[0x2c / 4], factor);
+  if ((long)f[0x28 / 4] == 5 && k_trace_enabled()) {
+    int i;
+    for (i = 0; i < 14 && frame > 0x10000 && k_readable((const void *)frame, 8); i++) {
+      uintptr_t next = ((const uintptr_t *)frame)[0];
+      uintptr_t ret = ((const uintptr_t *)frame)[1];
+      k_log("bt5[%d]=+0x%08lx", i, (unsigned long)((const BYTE *)ret - g_base));
+      if (next <= frame) break;
+      frame = next;
+    }
+  }
+}
+
+__attribute__((naked)) static void k_factory_diag(void) {
+  __asm__ __volatile__(
+      "push %ebp\n\t"
+      "mov %esp,%ebp\n\t"
+      "sub $0x40,%esp\n\t"
+      "pushal\n\t"
+      "push %ebp\n\t"
+      "push 12(%ebp)\n\t"
+      "push 8(%ebp)\n\t"
+      "push 4(%ebp)\n\t"
+      "call _k_factory_log\n\t"
+      "add $16,%esp\n\t"
+      "popal\n\t"
+      "jmp *_k_factory_resume\n\t");
+}
+
+static int install_factory_diag(void) {
+  static const BYTE prologue[6] = {0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x40};
+  const BYTE *p = g_base + (0x447510 - IMAGE_BASE);
+  BYTE buf[6];
+  uint32_t rel;
+  int in_range = patch_range(0x447510, 6);
+  int cmp = memcmp(p, prologue, sizeof(prologue));
+  if (!in_range || cmp != 0) {
+    k_log("diag: factory range=%d cmp=%d bytes=%02x%02x%02x%02x%02x%02x want=%02x%02x%02x%02x%02x%02x",
+          in_range, cmp, p[0], p[1], p[2], p[3], p[4], p[5],
+          prologue[0], prologue[1], prologue[2], prologue[3], prologue[4], prologue[5]);
+    return 0;
+  }
+  rel = (uint32_t)(uintptr_t)k_factory_diag -
+        ((uint32_t)(uintptr_t)g_base + 0x447510 - IMAGE_BASE + 5);
+  buf[0] = 0xE9;
+  memcpy(buf + 1, &rel, sizeof(rel));
+  buf[5] = 0x90;
+  k_factory_resume = (void (*)(void))(g_base + (0x447516 - IMAGE_BASE));
+  return write_bytes(0x447510, buf, sizeof(buf));
+}
+
+/* Control 'f' arrives as "f0x%08x0x%08x0x%08x0x%08x[@]%s" where the first two
+   hex fields become font height/width.  A few scenario commands only push two
+   of the four arguments, so the VM frame leftovers (e.g. 5/6) land in the h/w
+   slots and shrink 96px text to 20px.  The engine treats -1 as "keep the
+   current style", so rewrite degenerate sizes to that sentinel. */
+static void (*k_fc_resume)(void) __attribute__((used));
+
+static int k_fc_hex(const unsigned char *p, long *out) {
+  long v = 0;
+  int i;
+  for (i = 0; i < 8; i++) {
+    unsigned char c = p[i];
+    int d;
+    if (c >= '0' && c <= '9') d = c - '0';
+    else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+    else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+    else return 0;
+    v = (v << 4) | d;
+  }
+  *out = v;
+  return 1;
+}
+
+static void __attribute__((used)) __cdecl k_fc_fix(unsigned char *b) {
+  long h = -1, w = -1;
+  int fixed = 0;
+  if (!b || b[0] != 'f' || b[1] != '0' || b[2] != 'x' || !k_readable(b, 22)) return;
+  if (!k_fc_hex(b + 3, &h) || !k_fc_hex(b + 13, &w)) return;
+  if (h >= 0 && h < 8) {
+    memcpy(b + 3, "ffffffff", 8);
+    fixed = 1;
+  }
+  if (w >= 0 && w < 8) {
+    memcpy(b + 13, "ffffffff", 8);
+    fixed = 1;
+  }
+  if (fixed)
+    k_log("fctrl: h=%ld w=%ld -> keep current style", h, w);
+}
+
+__attribute__((naked)) static void k_fc_diag(void) {
+  __asm__ __volatile__(
+      "cmpb $0,0x29(%ebx)\n\t"
+      "lea 0x29(%ebx),%ecx\n\t"
+      "pushfl\n\t"
+      "pushal\n\t"
+      "push %ebx\n\t"
+      "call _k_fc_fix\n\t"
+      "add $4,%esp\n\t"
+      "popal\n\t"
+      "popfl\n\t"
+      "jmp *_k_fc_resume\n\t");
+}
+
+static int install_fc_fix(void) {
+  static const BYTE prologue[7] = {0x80, 0x7B, 0x29, 0x00, 0x8D, 0x4B, 0x29};
+  const BYTE *p = g_base + (0x443EC2 - IMAGE_BASE);
+  BYTE buf[7];
+  uint32_t rel;
+  if (!patch_range(0x443EC2, 7) || memcmp(p, prologue, sizeof(prologue)) != 0) {
+    k_log("kotoba: fctrl fix range/cmp failed bytes=%02x%02x%02x%02x%02x%02x%02x",
+          p[0], p[1], p[2], p[3], p[4], p[5], p[6]);
+    return 0;
+  }
+  rel = (uint32_t)(uintptr_t)k_fc_diag -
+        ((uint32_t)(uintptr_t)g_base + 0x443EC2 - IMAGE_BASE + 5);
+  buf[0] = 0xE9;
+  memcpy(buf + 1, &rel, sizeof(rel));
+  buf[5] = 0x90;
+  buf[6] = 0x90;
+  k_fc_resume = (void (*)(void))(g_base + (0x443EC9 - IMAGE_BASE));
+  return write_bytes(0x443EC2, buf, sizeof(buf));
+}
+
+/* The scenarios keep the speaker prefix inside the dialogue text
+   ("主人公：「…").  Layout at 0x445140 passes everything before 「 to
+   0x4441C0, which draws the nameplate from a stack copy.  Rename the prefix
+   there so no scenario byte changes and save offsets stay untouched. */
+static void *k_np_resume __attribute__((used));
+
+static int k_str_len(const char *s, int max) {
+  int i;
+  for (i = 0; i < max; i++) {
+    if (!k_readable(s + i, 1)) return -1;
+    if (!s[i]) return i;
+  }
+  return -1;
+}
+
+/* The VM keeps its instruction pointer behind two global indirections.  The
+   opcode handler 0x43c1f0 consumes opcode+operand before executing, so a fault
+   inside it reports an IP already past the failing instruction; print a window
+   around it so the bytecode can be matched against the script offline. */
+static void k_vm_dump(const char *tag) {
+  char *slot = (char *)g_base + (0x5d1a58 - IMAGE_BASE);
+  uint32_t ip = 0;
+  unsigned char b[48];
+  const unsigned char *p;
+  int i;
+  if (k_readable(slot, 4)) {
+    uint32_t state = *(uint32_t *)slot;
+    if (state && k_readable((void *)(uintptr_t)state, 4)) ip = *(uint32_t *)(uintptr_t)state;
+  }
+  p = (const unsigned char *)(uintptr_t)ip;
+  if (!ip || !k_readable(p - 16, sizeof(b))) {
+    k_log("%s: vm ip=%08lx (window unreadable)", tag, (unsigned long)ip);
+    return;
+  }
+  p -= 16;
+  memcpy(b, p, sizeof(b));
+  for (i = 0; i < 48; i += 16)
+    k_log("%s: vm ip=%08lx [%+d] %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x "
+          "%02x%02x%02x%02x",
+          tag, (unsigned long)ip, i - 16, b[i], b[i + 1], b[i + 2], b[i + 3], b[i + 4],
+          b[i + 5], b[i + 6], b[i + 7], b[i + 8], b[i + 9], b[i + 10], b[i + 11], b[i + 12],
+          b[i + 13], b[i + 14], b[i + 15]);
+}
+
+static void __attribute__((used)) __cdecl k_np_fix(const char *s) {
+  static const char jp[] = "\xE4\xB8\xBB\xE5\x85\xAC\xE5\x85\xAC"; /* 主人公 */
+  static const char cn[] = "\xE5\x81\xA5\xE5\xBF\x97";             /* 健志 */
+  static const char colon[] = "\xEF\xBC\x9A";                      /* ： */
+  char *p = (char *)s;
+  int n = p ? k_str_len(p, 0x800) : -1;
+  if (k_trace_enabled()) {
+    k_log("np: n=%d '%s'", n, n > 0 ? p : "");
+    k_vm_dump("np");
+  }
+  if (n < 9 || memcmp(p, jp, 9) != 0) return;
+  memmove(p + 6, p + 9, (size_t)(n - 9 + 1));
+  memcpy(p, cn, 6);
+  if (memcmp(p + 6, colon, 3) == 0) p[6] = 0;
+  else if (p[6] == ':') p[6] = 0;
+  k_log("nameplate: 主人公 -> 健志");
+}
+
+/* The E9 patch replaces a call, so on entry [esp] is the pushed text pointer
+   and no return address exists.  After renaming in place, re-create the call
+   frame (return address on top of the argument) and enter the original callee
+   at 0x44EB30, which queues the text run; skipping it corrupts VM state. */
+static void *k_np_target __attribute__((used));
+
+__attribute__((naked)) static void k_np_hook(void) {
+  __asm__ __volatile__(
+      "pushal\n\t"
+      "push 0x20(%esp)\n\t"
+      "call _k_np_fix\n\t"
+      "add $4,%esp\n\t"
+      "popal\n\t"
+      "pushl _k_np_resume\n\t"
+      "pushl _k_np_target\n\t"
+      "ret\n\t");
+}
+
+static int install_nameplate_fix(void) {
+  static const BYTE call[5] = {0xE8, 0x0C, 0xA9, 0x00, 0x00};
+  const BYTE *p = g_base + (0x44421F - IMAGE_BASE);
+  BYTE buf[5];
+  uint32_t rel;
+  if (!patch_range(0x44421F, 5) || memcmp(p, call, sizeof(call)) != 0) {
+    k_log("kotoba: nameplate call signature mismatch");
+    return 0;
+  }
+  rel = (uint32_t)(uintptr_t)k_np_hook -
+        ((uint32_t)(uintptr_t)g_base + 0x44421F - IMAGE_BASE + 5);
+  buf[0] = 0xE9;
+  memcpy(buf + 1, &rel, sizeof(rel));
+  k_np_resume = (void *)(g_base + (0x444224 - IMAGE_BASE));
+  k_np_target = (void *)(g_base + (0x44EB30 - IMAGE_BASE));
+  return write_bytes(0x44421F, buf, sizeof(buf));
+}
+
 static int patch_text_layer(void) {
   g_backup_count = 0;
   if (install_detour(0x478E40, (void *)k_name_hash) &&
@@ -450,16 +683,52 @@ static int patch_text_layer(void) {
 static LONG WINAPI crash_filter(EXCEPTION_POINTERS *ep) {
   DWORD code = ep->ExceptionRecord->ExceptionCode;
   PVOID addr = ep->ExceptionRecord->ExceptionAddress;
-  static int logged;
-  if (!logged) {
-    logged = 1;
-    k_log("crash: code=%08lx addr=%p exe_off=%08lx",
-          (unsigned long)code, addr,
+  static int seen;
+  if (seen < 16) {
+    seen++;
+    k_log("crash[%d]: code=%08lx addr=%p exe_off=%08lx", seen, (unsigned long)code, addr,
           (unsigned long)((BYTE *)addr - g_base));
     if (ep->ExceptionRecord->NumberParameters >= 2)
-      k_log("crash: param0=%08lx param1=%08lx",
+      k_log("crash[%d]: param0=%08lx param1=%08lx", seen,
             (unsigned long)ep->ExceptionRecord->ExceptionInformation[0],
             (unsigned long)ep->ExceptionRecord->ExceptionInformation[1]);
+    if (ep->ContextRecord) {
+      DWORD *frame = (DWORD *)(uintptr_t)ep->ContextRecord->Ebp;
+      int i;
+      k_log("crash[%d]: eip=+0x%08lx ebp=%p", seen,
+            (unsigned long)((BYTE *)(uintptr_t)ep->ContextRecord->Eip - g_base),
+            (void *)frame);
+      k_log("crash[%d]: regs eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx "
+            "esp=%08lx", seen, (unsigned long)ep->ContextRecord->Eax,
+            (unsigned long)ep->ContextRecord->Ebx, (unsigned long)ep->ContextRecord->Ecx,
+            (unsigned long)ep->ContextRecord->Edx, (unsigned long)ep->ContextRecord->Esi,
+            (unsigned long)ep->ContextRecord->Edi, (unsigned long)ep->ContextRecord->Esp);
+      if (k_readable((void *)(uintptr_t)ep->ContextRecord->Esi, 0x14))
+        k_log("crash[%d]: var %08lx: %08lx %08lx %08lx %08lx %08lx", seen,
+              (unsigned long)ep->ContextRecord->Esi,
+              (unsigned long)((DWORD *)(uintptr_t)ep->ContextRecord->Esi)[0],
+              (unsigned long)((DWORD *)(uintptr_t)ep->ContextRecord->Esi)[1],
+              (unsigned long)((DWORD *)(uintptr_t)ep->ContextRecord->Esi)[2],
+              (unsigned long)((DWORD *)(uintptr_t)ep->ContextRecord->Esi)[3],
+              (unsigned long)((DWORD *)(uintptr_t)ep->ContextRecord->Esi)[4]);
+      if (k_readable((void *)((uintptr_t)ep->ContextRecord->Ebp - 0x14), 0x18))
+        k_log("crash[%d]: locals %08lx %08lx %08lx %08lx %08lx %08lx", seen,
+              (unsigned long)((DWORD *)((uintptr_t)ep->ContextRecord->Ebp - 0x14))[0],
+              (unsigned long)((DWORD *)((uintptr_t)ep->ContextRecord->Ebp - 0x14))[1],
+              (unsigned long)((DWORD *)((uintptr_t)ep->ContextRecord->Ebp - 0x14))[2],
+              (unsigned long)((DWORD *)((uintptr_t)ep->ContextRecord->Ebp - 0x14))[3],
+              (unsigned long)((DWORD *)((uintptr_t)ep->ContextRecord->Ebp - 0x14))[4],
+              (unsigned long)((DWORD *)((uintptr_t)ep->ContextRecord->Ebp - 0x14))[5]);
+      for (i = 0; i < 10 && frame && (uintptr_t)frame > 0x10000 &&
+                  k_readable(frame, 8); i++) {
+        DWORD ret = frame[1], next = frame[0];
+        k_log("crash[%d]: bt[%d]=+0x%08lx", seen, i,
+              (unsigned long)((BYTE *)(uintptr_t)ret - g_base));
+        if (next <= (DWORD)(uintptr_t)frame) break;
+        frame = (DWORD *)(uintptr_t)next;
+      }
+      k_vm_dump("crash");
+    }
   }
   return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -487,6 +756,21 @@ void kotoba_init(void) {
   }
   if (!patch_text_layer()) goto done;
   k_log("kotoba: text layer patched");
+  if (!install_fc_fix()) goto done;
+  k_log("kotoba: font-control fix installed");
+  {
+    char np[8];
+    DWORD n = GetEnvironmentVariableA("KOTOBA_NP", np, sizeof(np));
+    if (n > 0 && n < sizeof(np) && np[0] == '0') {
+      k_log("kotoba: nameplate fix disabled by KOTOBA_NP");
+    } else {
+      if (!install_nameplate_fix()) goto done;
+      k_log("kotoba: nameplate fix installed");
+    }
+  }
+  if (k_trace_enabled()) {
+    k_log("diag: factory probe %s", install_factory_diag() ? "on" : "failed");
+  }
   SetUnhandledExceptionFilter(crash_filter);
   AddVectoredExceptionHandler(1, crash_filter);
   g_hooks_ready = 1;
