@@ -21,3 +21,7 @@ engine/majiro-win32/build/
 tools/majiro/build/
 __pycache__/
 *.pyc
+
+# 安装器图标由游戏 exe 在打包时生成，不提交游戏素材
+tools/patch-installer/stub/game.ico
+tools/patch-installer/stub/*.syso
