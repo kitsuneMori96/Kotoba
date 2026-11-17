@@ -83,10 +83,11 @@ static const WCHAR *const k_legacy_jp_w[] = {
   L"セーブする場所を選択してください",
   L"タイトルに戻ります。よろしいですか？",
   L"終了してよろしいですか？",
+  L"ゲームを終了します。よろしいですか？",
 };
 /* Source literals are UTF-8; the engine hands over CP932 bytes, so convert
    the table once at init instead of comparing mismatched byte strings. */
-static char k_legacy_jp[9][64];
+static char k_legacy_jp[sizeof(k_legacy_jp_w) / sizeof(k_legacy_jp_w[0])][64];
 static const WCHAR *const k_legacy_zh[] = {
   L"要读取快速存档吗？",
   L"要快速保存吗？",
@@ -96,6 +97,7 @@ static const WCHAR *const k_legacy_zh[] = {
   L"请选择要读取的数据。",
   L"请选择要保存的位置。",
   L"要返回标题画面吗？",
+  L"要退出游戏吗？",
   L"要退出游戏吗？",
 };
 static const int k_legacy_n = sizeof(k_legacy_jp_w) / sizeof(k_legacy_jp_w[0]);
@@ -107,7 +109,7 @@ static void init_legacy(void) {
                         NULL, NULL);
 }
 
-static const char *k_legacy_source[9];
+static const char *k_legacy_source[sizeof(k_legacy_jp) / sizeof(k_legacy_jp[0])];
 
 static int find_legacy(const char *s, int n) {
   int i, j;
