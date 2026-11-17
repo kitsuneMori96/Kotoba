@@ -6,7 +6,7 @@
 
 static BYTE *fake_base;
 static int protect_calls, fail_protect, fail_protect_from, flush_calls, fail_flush;
-static int gdi_calls, fs_calls, temp_mode, file_mode, writes;
+static int gdi_calls, fs_calls, msgbox_calls, temp_mode, file_mode, writes;
 static char last_log[1024];
 static BOOL WINAPI test_protect(LPVOID p, SIZE_T n, DWORD flags, PDWORD old) {
   ++protect_calls;
@@ -59,6 +59,7 @@ static BOOL WINAPI test_close(HANDLE h) { (void)h; SetLastError(9005); return TR
 #undef CloseHandle
 #include "utf8.c"
 void k_gdi_init(void) { gdi_calls++; }
+void k_msgbox_init(void) { msgbox_calls++; }
 void k_fs_init(void) { fs_calls++; }
 
 static const struct { DWORD addr; const BYTE *sig; size_t len; } sigs[] = {
@@ -213,9 +214,9 @@ int main(int argc, char **argv) {
     } else if (!strcmp(argv[1], "writefail")) fail_protect = 9;
     else assert(!strcmp(argv[1], "valid"));
     SetLastError(12345); kotoba_init(); assert(GetLastError() == 12345);
-    if (!strcmp(argv[1], "valid")) { assert(gdi_calls == 1 && fs_calls == 1 && g_hooks_ready); }
-    else { assert(!gdi_calls && !fs_calls && !g_hooks_ready); }
-    kotoba_init(); assert(gdi_calls <= 1 && fs_calls <= 1);
+    if (!strcmp(argv[1], "valid")) { assert(gdi_calls == 1 && msgbox_calls == 1 && fs_calls == 1 && g_hooks_ready); }
+    else { assert(!gdi_calls && !msgbox_calls && !fs_calls && !g_hooks_ready); }
+    kotoba_init(); assert(gdi_calls <= 1 && msgbox_calls <= 1 && fs_calls <= 1);
     if (!strcmp(argv[1], "writefail")) originals();
     printf("PASS: init gate %s\n", argv[1]);
   }

@@ -14,6 +14,9 @@ typedef BOOL (WINAPI *metrics_a_t)(HDC, LPTEXTMETRICA);
 typedef HFONT (WINAPI *font_a_t)(const LOGFONTA *);
 typedef int (WINAPI *addfont_a_t)(LPCSTR);
 
+typedef int (WINAPI *msgbox_a_t)(HWND, LPCSTR, LPCSTR, UINT);
+typedef int (WINAPI *msgbox_w_t)(HWND, LPCWSTR, LPCWSTR, UINT);
+
 static textout_w_t real_textout_w;
 static extent_w_t real_extent_w;
 static metrics_w_t real_metrics_w;
@@ -25,6 +28,9 @@ static extent_a_t real_extent_a;
 static metrics_a_t real_metrics_a;
 static font_a_t real_font_a;
 static addfont_a_t real_addfont_a;
+
+static msgbox_a_t real_msgbox_a;
+static msgbox_w_t real_msgbox_w;
 
 static WCHAR g_face[LF_FACESIZE];
 
@@ -128,6 +134,17 @@ static int find_legacy(const char *s, int n) {
         s == k_legacy_source[i] + (L - n) &&
         memcmp(s, k_legacy_jp[i] + (L - n), n) == 0)
       return i;
+  }
+  return -1;
+}
+
+/* Whole-string lookup for dialogs (MessageBox) that draw the full sentence at
+   once; unlike find_legacy it never binds a suffix source pointer. */
+static int legacy_exact(const char *s, int n) {
+  int i;
+  for (i = 0; i < k_legacy_n; i++) {
+    int L = (int)strlen(k_legacy_jp[i]);
+    if (n == L && memcmp(s, k_legacy_jp[i], L) == 0) return i;
   }
   return -1;
 }
@@ -246,6 +263,54 @@ static int WINAPI my_addfont_a(LPCSTR path) {
   if (!path) return 0;
   if (!MultiByteToWideChar(CP_ACP, 0, path, -1, buf, MAX_PATH * 2)) return 0;
   return real_addfont_w(buf);
+}
+
+/* MessageBox renders its body inside USER32, so the engine's CP932 sentence
+   never reaches the TextOutA hook. Translate the whole string here. */
+static void msgbox_text(LPCSTR s, WCHAR *out, int cap) {
+  int n, idx, w;
+  out[0] = 0;
+  if (!s) return;
+  n = (int)strlen(s);
+  idx = legacy_exact(s, n);
+  if (idx >= 0) {
+    int m = (int)wcslen(k_legacy_zh[idx]);
+    if (m < cap) {
+      memcpy(out, k_legacy_zh[idx], (m + 1) * sizeof(WCHAR));
+      return;
+    }
+  }
+  w = to_wide(s, n, out, cap - 1);
+  if (w > 0) out[w] = 0;
+}
+
+static int WINAPI my_messagebox_a(HWND hwnd, LPCSTR text, LPCSTR caption, UINT type) {
+  WCHAR t[512], c[256];
+  DWORD saved = GetLastError();
+  int r;
+  if (!real_msgbox_w)
+    return real_msgbox_a ? real_msgbox_a(hwnd, text, caption, type) : 0;
+  msgbox_text(text, t, 512);
+  msgbox_text(caption, c, 256);
+  if (k_trace_enabled()) {
+    char u8[1024];
+    int k = WideCharToMultiByte(CP_UTF8, 0, t, -1, u8, sizeof(u8), NULL, NULL);
+    if (k > 0) k_log("msgbox: %s", u8);
+  }
+  SetLastError(saved);
+  r = real_msgbox_w(hwnd, text ? t : NULL, caption ? c : NULL, type);
+  saved = GetLastError();
+  SetLastError(saved);
+  return r;
+}
+
+void k_msgbox_init(void) {
+  HMODULE u = GetModuleHandleA("user32.dll");
+  if (!u) return;
+  real_msgbox_a = (msgbox_a_t)GetProcAddress(u, "MessageBoxA");
+  real_msgbox_w = (msgbox_w_t)GetProcAddress(u, "MessageBoxW");
+  if (!real_msgbox_w) return;
+  k_iat_hook("USER32.dll", "MessageBoxA", (void *)my_messagebox_a);
 }
 
 static FARPROC gdi_proc(HMODULE gdi, const char *name) {

@@ -24,6 +24,7 @@ int k_trace_enabled(void);
 int k_readable(const void *ptr, SIZE_T len);
 int k_iat_hook(const char *dll, const char *fn, void *repl);
 void k_gdi_init(void);
+void k_msgbox_init(void);
 void k_fs_init(void);
 void kotoba_init(void);
 

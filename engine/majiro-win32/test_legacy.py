@@ -15,7 +15,7 @@ assert translations[strings.index('ゲームを終了します。よろしいで
 encoded = [text.encode('cp932') for text in strings]
 table = ',\n'.join('"' + ''.join(f'\\x{b:02x}' for b in text) + '"' for text in encoded)
 start = source.index('static const char *k_legacy_source')
-end = source.index('\n/*', start)
+end = source.index('\n/* The engine reveals', start)
 matcher = source[start:end]
 draw = source[source.index('static BOOL draw_legacy'):source.index('\nstatic BOOL WINAPI my_textout_a')]
 program = r'''
@@ -60,10 +60,14 @@ int main(void) {
     for (off = 0; off < (int)strlen(reused); off += 2)
       assert(find_legacy(reused + off, strlen(reused) - off) == j);
   }
+  for (i = 0; i < k_legacy_n; i++) {
+    assert(legacy_exact(buffers[i], strlen(buffers[i])) == i);
+    assert(legacy_exact(buffers[i] + 2, strlen(buffers[i]) - 2) == -1);
+  }
   memset(k_legacy_source, 0, sizeof(k_legacy_source));
   strcpy(reused, k_legacy_jp[7]);
   assert(find_legacy(reused + 2, strlen(reused) - 2) == -1);
-  printf("PASS: all %d banners, glyph output, interleaved suffixes, reused buffer, unbound suffix\n", k_legacy_n);
+  printf("PASS: all %d banners, glyph output, interleaved suffixes, reused buffer, unbound suffix, dialog whole-string\n", k_legacy_n);
 }
 '''.replace('TABLE\n', f'static const char k_legacy_jp[{len(strings)}][64] = {{{table}}};\nstatic const int k_legacy_n = {len(strings)};\n', 1)
 program = program.replace('WIDE_TABLES', f'static const WCHAR *const k_legacy_jp_w[] = {{{jp}}};\nstatic const WCHAR *const k_legacy_zh[] = {{{zh}}};')

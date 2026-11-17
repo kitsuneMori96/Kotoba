@@ -491,6 +491,7 @@ void kotoba_init(void) {
   AddVectoredExceptionHandler(1, crash_filter);
   g_hooks_ready = 1;
   k_gdi_init();
+  k_msgbox_init();
   k_fs_init();
   k_log("kotoba: hook setup %s (text layer on)", g_iat_failed ? "incomplete" : "complete");
 done:
