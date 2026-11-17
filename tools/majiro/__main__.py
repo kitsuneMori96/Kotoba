@@ -13,7 +13,7 @@ from .toolchain import ToolchainError
 
 def new_bytes(path, data):
     path = Path(path)
-    fd, temporary = tempfile.mkstemp(prefix=".kotoba-output-", dir=path.parent)
+    fd, temporary = tempfile.mkstemp(prefix=".ruri-output-", dir=path.parent)
     try:
         with os.fdopen(fd, "wb") as stream:
             stream.write(data)

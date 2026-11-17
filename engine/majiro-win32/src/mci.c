@@ -103,7 +103,7 @@ static void log_open_w(DWORD_PTR flags, DWORD_PTR param) {
   k_log("mci OPENW type=%s elem=%s", type, elem);
 }
 
-MCIERROR WINAPI kotoba_mciSendCommandA(MCIDEVICEID id, UINT msg, DWORD_PTR flags, DWORD_PTR param) {
+MCIERROR WINAPI ruri_mciSendCommandA(MCIDEVICEID id, UINT msg, DWORD_PTR flags, DWORD_PTR param) {
   DWORD saved = GetLastError();
   MCIERROR r = resolve();
   int trace = k_trace_enabled();
@@ -120,7 +120,7 @@ MCIERROR WINAPI kotoba_mciSendCommandA(MCIDEVICEID id, UINT msg, DWORD_PTR flags
   return r;
 }
 
-MCIERROR WINAPI kotoba_mciSendCommandW(MCIDEVICEID id, UINT msg, DWORD_PTR flags, DWORD_PTR param) {
+MCIERROR WINAPI ruri_mciSendCommandW(MCIDEVICEID id, UINT msg, DWORD_PTR flags, DWORD_PTR param) {
   DWORD saved = GetLastError();
   MCIERROR r = resolve();
   int trace = k_trace_enabled();
@@ -137,7 +137,7 @@ MCIERROR WINAPI kotoba_mciSendCommandW(MCIDEVICEID id, UINT msg, DWORD_PTR flags
   return r;
 }
 
-MCIERROR WINAPI kotoba_mciSendStringA(LPCSTR cmd, LPSTR ret, UINT retlen, HWND cb) {
+MCIERROR WINAPI ruri_mciSendStringA(LPCSTR cmd, LPSTR ret, UINT retlen, HWND cb) {
   DWORD saved = GetLastError();
   MCIERROR r = resolve();
   int trace = k_trace_enabled();
@@ -158,7 +158,7 @@ MCIERROR WINAPI kotoba_mciSendStringA(LPCSTR cmd, LPSTR ret, UINT retlen, HWND c
   return r;
 }
 
-MCIERROR WINAPI kotoba_mciSendStringW(LPCWSTR cmd, LPWSTR ret, UINT retlen, HWND cb) {
+MCIERROR WINAPI ruri_mciSendStringW(LPCWSTR cmd, LPWSTR ret, UINT retlen, HWND cb) {
   DWORD saved = GetLastError();
   MCIERROR r = resolve();
   int trace = k_trace_enabled();

@@ -107,7 +107,7 @@ int main(void) {
 program = program.replace('WIDE_TABLES', f'static const WCHAR *const k_legacy_jp_w[] = {{{jp}}};\nstatic const WCHAR *const k_legacy_zh[] = {{{zh}}};')
 program = program.replace('U8_TABLE', f'static const char k_legacy_u8[{len(strings)}][128] = {{{u8_table}}};')
 program = program.replace('MATCHER', matcher).replace('DRAW', draw)
-with tempfile.TemporaryDirectory(prefix='kotoba-legacy-') as tmp:
+with tempfile.TemporaryDirectory(prefix='ruri-legacy-') as tmp:
     c = Path(tmp) / 'test.c'
     exe = Path(tmp) / 'test'
     c.write_text(program, encoding='utf-8')

@@ -16,7 +16,7 @@ static int g_iat_failed;
 
 int k_trace_enabled(void) {
   DWORD saved = GetLastError();
-  int enabled = GetEnvironmentVariableA("KOTOBA_TRACE", NULL, 0) > 0;
+  int enabled = GetEnvironmentVariableA("RURI_TRACE", NULL, 0) > 0;
   SetLastError(saved);
   return enabled;
 }
@@ -198,7 +198,7 @@ void k_log(const char *fmt, ...) {
 
   n = GetTempPathA(MAX_PATH, path);
   if (n == 0 || n >= MAX_PATH - 20) goto done;
-  lstrcatA(path, "kotoba_hook.log");
+  lstrcatA(path, "ruri_hook.log");
   h = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
                   OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
   if (h == INVALID_HANDLE_VALUE) goto done;
@@ -489,7 +489,7 @@ static int install_fc_fix(void) {
   BYTE buf[7];
   uint32_t rel;
   if (!patch_range(0x443EC2, 7) || memcmp(p, prologue, sizeof(prologue)) != 0) {
-    k_log("kotoba: fctrl fix range/cmp failed bytes=%02x%02x%02x%02x%02x%02x%02x",
+    k_log("ruri: fctrl fix range/cmp failed bytes=%02x%02x%02x%02x%02x%02x%02x",
           p[0], p[1], p[2], p[3], p[4], p[5], p[6]);
     return 0;
   }
@@ -555,7 +555,7 @@ static int install_nameplate_fix(void) {
   BYTE buf[5];
   uint32_t rel;
   if (!patch_range(0x44421F, 5) || memcmp(p, call, sizeof(call)) != 0) {
-    k_log("kotoba: nameplate call signature mismatch");
+    k_log("ruri: nameplate call signature mismatch");
     return 0;
   }
   rel = (uint32_t)(uintptr_t)k_np_hook -
@@ -581,43 +581,43 @@ static int patch_text_layer(void) {
       patch_key_edx(0x444870) && patch_key_edx(0x444D57) &&
       patch_key_ecx6(0x442AEF) &&
       patch_measure(0x4444F3, 31, 0x08) && patch_measure(0x442B2E, 24, 0x2C)) return 1;
-  k_log("kotoba: text patch failed; code rollback %s", rollback_code() ? "complete" : "incomplete");
+  k_log("ruri: text patch failed; code rollback %s", rollback_code() ? "complete" : "incomplete");
   return 0;
 }
 
-void kotoba_init(void) {
+void ruri_init(void) {
   static int attempted;
   DWORD saved = GetLastError();
   if (attempted) return;
   attempted = 1;
   g_base = (BYTE *)GetModuleHandleA(NULL);
   if (!g_base || !validate_image() || !validate_imports() || !hash_core_ok()) {
-    k_log("kotoba: invalid or unsupported image, game hooks skipped");
+    k_log("ruri: invalid or unsupported image, game hooks skipped");
     goto done;
   }
 
-  k_log("kotoba: base=%p", g_base);
+  k_log("ruri: base=%p", g_base);
   if (!(sig_ok(0x47C5D0, S_NEXT, sizeof(S_NEXT)) && sig_ok(0x47C610, S_COUNT, sizeof(S_COUNT)) &&
         sig_ok(0x47C6C0, S_SKIP, sizeof(S_SKIP)) && sig_ok(0x47EE00, S_LEAD, sizeof(S_LEAD)) &&
         sig_ok(0x47C650, S_LOWER, sizeof(S_LOWER)) && sig_ok(0x47C440, S_STRCHR, sizeof(S_STRCHR)) && sig_ok(0x47C710, S_STRREV, sizeof(S_STRREV)) && sig_ok(0x478E40, S_HASH, sizeof(S_HASH)) && sig_ok(0x4444C4, S_K1, sizeof(S_K1)) &&
         sig_ok(0x44463B, S_K2, sizeof(S_K2)) && sig_ok(0x444870, S_K2, sizeof(S_K2)) &&
         sig_ok(0x444D57, S_K3, sizeof(S_K3)) && sig_ok(0x442AEF, S_K4, sizeof(S_K4)) &&
         sig_ok(0x4444F3, S_M1, sizeof(S_M1)) && sig_ok(0x442B2E, S_M2, sizeof(S_M2)))) {
-    k_log("kotoba: executable signature mismatch, game hooks skipped");
+    k_log("ruri: executable signature mismatch, game hooks skipped");
     goto done;
   }
   if (!patch_text_layer()) goto done;
-  k_log("kotoba: text layer patched");
+  k_log("ruri: text layer patched");
   if (!install_fc_fix()) goto done;
-  k_log("kotoba: font-control fix installed");
+  k_log("ruri: font-control fix installed");
   {
     char np[8];
-    DWORD n = GetEnvironmentVariableA("KOTOBA_NP", np, sizeof(np));
+    DWORD n = GetEnvironmentVariableA("RURI_NP", np, sizeof(np));
     if (n > 0 && n < sizeof(np) && np[0] == '0') {
-      k_log("kotoba: nameplate fix disabled by KOTOBA_NP");
+      k_log("ruri: nameplate fix disabled by RURI_NP");
     } else {
       if (!install_nameplate_fix()) goto done;
-      k_log("kotoba: nameplate fix installed");
+      k_log("ruri: nameplate fix installed");
     }
   }
 
@@ -625,7 +625,7 @@ void kotoba_init(void) {
   k_gdi_init();
   k_msgbox_init();
   k_fs_init();
-  k_log("kotoba: hook setup %s (text layer on)", g_iat_failed ? "incomplete" : "complete");
+  k_log("ruri: hook setup %s (text layer on)", g_iat_failed ? "incomplete" : "complete");
 done:
   SetLastError(saved);
 }

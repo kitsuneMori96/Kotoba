@@ -1,5 +1,5 @@
-#ifndef KOTOBA_MAJIRO_H
-#define KOTOBA_MAJIRO_H
+#ifndef RURI_MAJIRO_H
+#define RURI_MAJIRO_H
 
 #include <windows.h>
 #include <stdint.h>
@@ -26,6 +26,6 @@ int k_iat_hook(const char *dll, const char *fn, void *repl);
 void k_gdi_init(void);
 void k_msgbox_init(void);
 void k_fs_init(void);
-void kotoba_init(void);
+void ruri_init(void);
 
 #endif

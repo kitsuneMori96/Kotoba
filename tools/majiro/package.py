@@ -12,8 +12,8 @@ from .arc import Archive, ValidationError, file_sha256, name_key, regular_file, 
 from .audit import load_json, new_json
 from .mjo import Script
 
-_STATE = ".kotoba-state"
-_LOCK = b"KOTOBA-LOCK-1\n"
+_STATE = ".ruri-state"
+_LOCK = b"RURI-LOCK-1\n"
 _ARCS = {"scenario.arc", "update.arc", "fastdata.arc", "data.arc", "data2.arc"}
 _FILE_FIELDS = {"path", "before_sha256", "after_sha256", "size", "payload", "reason"}
 
@@ -546,7 +546,7 @@ def _save(state, journal):
 
 def _temp_name(journal, index, item):
     parent = safe_name(item["path"]).rpartition("/")[0]
-    name = f".kotoba-{journal['id']}-{index:06d}.tmp"
+    name = f".ruri-{journal['id']}-{index:06d}.tmp"
     return f"{parent}/{name}" if parent else name
 
 
@@ -609,7 +609,7 @@ def install(package_dir, target):
     package, root, manifest = _verified(package_dir, target)
     state = _child(root, _STATE)
     if _exists(state):
-        _fail("Existing .kotoba-state: recover/rollback it; never overwrite backups")
+        _fail("Existing .ruri-state: recover/rollback it; never overwrite backups")
     _assert_not_running(_host(root, manifest["executable"]))
     journal = {"schema": 1, "id": uuid.uuid4().hex, "target": str(root),
                "executable": manifest["executable"], "status": "preparing", "files": []}

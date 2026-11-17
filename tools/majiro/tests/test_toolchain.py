@@ -36,7 +36,7 @@ def tar_bytes(files):
 
 class TemporaryTest(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix="kotoba-maji-test-")
+        temporary = tempfile.TemporaryDirectory(prefix="ruri-maji-test-")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
 

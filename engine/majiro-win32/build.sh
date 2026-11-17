@@ -31,10 +31,10 @@ fi
         print fn "=winmm_orig." fn
       }
     '
-  echo "mciSendCommandA=kotoba_mciSendCommandA"
-  echo "mciSendCommandW=kotoba_mciSendCommandW"
-  echo "mciSendStringA=kotoba_mciSendStringA"
-  echo "mciSendStringW=kotoba_mciSendStringW"
+  echo "mciSendCommandA=ruri_mciSendCommandA"
+  echo "mciSendCommandW=ruri_mciSendCommandW"
+  echo "mciSendStringA=ruri_mciSendStringA"
+  echo "mciSendStringW=ruri_mciSendStringW"
 } > "$OUT/winmm.def"
 
 rm -f "$OUT/winmm_orig.dll"

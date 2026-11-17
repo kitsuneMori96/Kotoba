@@ -45,7 +45,7 @@ def _raw_bytes(exc):
     return "".join(chr(0xE000 + byte) for byte in exc.object[exc.start:exc.end]), exc.end
 
 
-codecs.register_error("kotoba_raw_bytes", _raw_bytes)
+codecs.register_error("ruri_raw_bytes", _raw_bytes)
 
 
 def codec(encoding):
@@ -55,7 +55,7 @@ def codec(encoding):
 
 
 def decode_string(data, encoding):
-    text = data.decode(codec(encoding), errors="kotoba_raw_bytes")
+    text = data.decode(codec(encoding), errors="ruri_raw_bytes")
     return "".join(chr(0xE000 + ord(c)) if ord(c) < 32 or ord(c) == 127 else c for c in text)
 
 

@@ -20,7 +20,7 @@ def main():
     linux_root = wsl_path(root)
     run(["wsl.exe", "-e", "/usr/bin/bash", "-lc", "CC=/usr/bin/i686-w64-mingw32-gcc OBJDUMP=/usr/bin/i686-w64-mingw32-objdump /usr/bin/bash " + shlex.quote(linux_root + "/build.sh")])
     run(["wsl.exe", "-e", "/usr/bin/python3", linux_root + "/test_legacy.py"])
-    with tempfile.TemporaryDirectory(prefix="kotoba-dll-tests-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="ruri-dll-tests-") as temporary:
         folder = Path(temporary)
         linux_temp = wsl_path(folder)
         for name in ("hooks", "mci", "fs"):

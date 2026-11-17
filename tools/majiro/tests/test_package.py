@@ -100,7 +100,7 @@ class PackageTests(unittest.TestCase):
         return json.loads((self.output / "manifest.json").read_text(encoding="utf-8"))
 
     def journal(self):
-        return json.loads((self.target / ".kotoba-state/journal.json").read_text(encoding="utf-8"))
+        return json.loads((self.target / ".ruri-state/journal.json").read_text(encoding="utf-8"))
 
     def assert_unrelated(self):
         for name in ("notes.txt", "save/slot01.sav", "game.cfg", "game.exe", "winmm_orig.dll"):
@@ -123,7 +123,7 @@ class PackageTests(unittest.TestCase):
     def test_build_verify_install_rollback_retains_backups(self):
         manifest = self.build()
         self.assert_original()
-        self.assertFalse((self.target / ".kotoba-state").exists())
+        self.assertFalse((self.target / ".ruri-state").exists())
         self.assertEqual(manifest["files"][0]["payload"], "payload/000000.bin")
         self.assertEqual(package.verify(self.output, self.target)["status"], "verified")
         self.runtime.assert_not_called()
@@ -134,8 +134,8 @@ class PackageTests(unittest.TestCase):
         self.assert_original()
         self.assertEqual(package.recover(self.target)["status"], "rolled_back")
         self.assertEqual(package.rollback(self.target)["status"], "rolled_back")
-        self.assertEqual((self.target / ".kotoba-state/backups/000000.bin").read_bytes(), self.before["winmm.dll"])
-        self.assertTrue((self.target / ".kotoba-state/lock").is_file())
+        self.assertEqual((self.target / ".ruri-state/backups/000000.bin").read_bytes(), self.before["winmm.dll"])
+        self.assertTrue((self.target / ".ruri-state/lock").is_file())
 
     def test_resource_packages_need_no_script_audit(self):
         self.build(self.spec(("data.arc", "data2.arc", "fastdata.arc")))
@@ -244,7 +244,7 @@ class PackageTests(unittest.TestCase):
         self.write_json(self.output / "manifest.json", manifest)
         with self.assertRaises(ValidationError):
             package.verify(self.output, self.target)
-        self.assertFalse((self.target / ".kotoba-state").exists())
+        self.assertFalse((self.target / ".ruri-state").exists())
 
     def test_script_updates_require_successful_audit(self):
         for name in ("scenario.arc", "update.arc", "scenario/new.mjo"):
@@ -317,7 +317,7 @@ class PackageTests(unittest.TestCase):
         for operation in (package.verify, package.install):
             with self.assertRaises(ValidationError):
                 operation(self.output, self.target)
-        self.assertFalse((self.target / ".kotoba-state").exists())
+        self.assertFalse((self.target / ".ruri-state").exists())
 
     def test_dangerous_disallowed_and_duplicate_spec_paths(self):
         names = ["../winmm.dll", "/winmm.dll", "C:/winmm.dll", "winmm.dll:stream", "CON",
@@ -436,7 +436,7 @@ class PackageTests(unittest.TestCase):
         (self.output / "payload/000001.bin").write_bytes(b"corrupt")
         with self.assertRaises(ValidationError):
             package.install(self.output, self.target)
-        self.assertFalse((self.target / ".kotoba-state").exists())
+        self.assertFalse((self.target / ".ruri-state").exists())
         self.assert_original()
 
     def test_install_rechecks_executable_and_target_before_state(self):
@@ -446,7 +446,7 @@ class PackageTests(unittest.TestCase):
                 (self.target / name).write_bytes(b"external version")
                 with self.assertRaises(ValidationError):
                     package.install(self.output, self.target)
-                self.assertFalse((self.target / ".kotoba-state").exists())
+                self.assertFalse((self.target / ".ruri-state").exists())
                 (self.target / name).write_bytes(self.before[name])
 
     def test_second_verification_under_lock(self):
@@ -475,7 +475,7 @@ class PackageTests(unittest.TestCase):
         (self.target / "winmm_orig.dll").unlink()
         with self.assertRaises(OSError):
             package.install(self.output, self.target)
-        self.assertFalse((self.target / ".kotoba-state").exists())
+        self.assertFalse((self.target / ".ruri-state").exists())
 
     def test_refuse_running_target_and_process_check_failure(self):
         self.build()
@@ -483,7 +483,7 @@ class PackageTests(unittest.TestCase):
             self.runtime.side_effect = ValidationError(message)
             with self.assertRaises(ValidationError):
                 package.install(self.output, self.target)
-            self.assertFalse((self.target / ".kotoba-state").exists())
+            self.assertFalse((self.target / ".ruri-state").exists())
         self.runtime.side_effect = None
         manifest = self.manifest()
         package.install(self.output, self.target)
@@ -498,7 +498,7 @@ class PackageTests(unittest.TestCase):
         with mock.patch.object(package.shutil, "disk_usage", return_value=SimpleNamespace(free=0)):
             with self.assertRaises(ValidationError):
                 package.install(self.output, self.target)
-        self.assertFalse((self.target / ".kotoba-state").exists())
+        self.assertFalse((self.target / ".ruri-state").exists())
         package.install(self.output, self.target)
         with mock.patch.object(package.shutil, "disk_usage", return_value=SimpleNamespace(free=0)):
             with self.assertRaises(ValidationError):
@@ -513,7 +513,7 @@ class PackageTests(unittest.TestCase):
 
     def test_existing_state_directory_and_file_preserved(self):
         self.build()
-        state = self.target / ".kotoba-state"
+        state = self.target / ".ruri-state"
         state.mkdir()
         marker = state / "user-owned"
         marker.write_bytes(b"keep")
@@ -540,7 +540,7 @@ class PackageTests(unittest.TestCase):
     def test_state_lock_exclusive(self):
         self.build()
         package.install(self.output, self.target)
-        with package._lock(self.target / ".kotoba-state"):
+        with package._lock(self.target / ".ruri-state"):
             with self.assertRaises(ValidationError):
                 package.rollback(self.target)
         self.assert_installed(self.manifest())
@@ -567,7 +567,7 @@ class PackageTests(unittest.TestCase):
         self.assert_original()
         package.recover(self.target)
         self.assert_original()
-        self.assertFalse(list(self.target.glob(".kotoba-*.tmp")))
+        self.assertFalse(list(self.target.glob(".ruri-*.tmp")))
 
     def test_recover_uses_hash_not_stale_progress(self):
         self.build()
@@ -591,7 +591,7 @@ class PackageTests(unittest.TestCase):
         real_copy = package._copy_new
 
         def stop_before_second_backup(source, destination, expected):
-            if Path(destination) == self.target / ".kotoba-state/backups/000001.bin":
+            if Path(destination) == self.target / ".ruri-state/backups/000001.bin":
                 raise OSError("synthetic stop before backup")
             return real_copy(source, destination, expected)
 
@@ -635,18 +635,18 @@ class PackageTests(unittest.TestCase):
         with mock.patch.object(package, "_copy_new", side_effect=partial_temporary):
             with self.assertRaises(OSError):
                 package.install(self.output, self.target)
-        unrelated = self.target / ".kotoba-unrelated.tmp"
+        unrelated = self.target / ".ruri-unrelated.tmp"
         unrelated.write_bytes(b"user-owned")
         package.recover(self.target)
         self.assertEqual(unrelated.read_bytes(), b"user-owned")
-        self.assertEqual(list(self.target.glob(".kotoba-*.tmp")), [unrelated])
+        self.assertEqual(list(self.target.glob(".ruri-*.tmp")), [unrelated])
         self.assert_original()
 
     def test_later_external_modification_blocks_entire_rollback_and_recover(self):
         manifest = self.build()
         package.install(self.output, self.target)
         (self.target / "data.arc").write_bytes(b"user modification")
-        journal_path = self.target / ".kotoba-state/journal.json"
+        journal_path = self.target / ".ruri-state/journal.json"
         original_journal = journal_path.read_bytes()
         for operation in (package.rollback, package.recover):
             with self.assertRaises(ValidationError):
@@ -659,7 +659,7 @@ class PackageTests(unittest.TestCase):
     def test_later_corrupt_backup_blocks_all_changes(self):
         manifest = self.build()
         package.install(self.output, self.target)
-        (self.target / ".kotoba-state/backups/000001.bin").write_bytes(b"damaged backup")
+        (self.target / ".ruri-state/backups/000001.bin").write_bytes(b"damaged backup")
         for operation in (package.rollback, package.recover):
             with self.assertRaises(ValidationError):
                 operation(self.target)
@@ -668,7 +668,7 @@ class PackageTests(unittest.TestCase):
     def test_missing_backup_blocks_all_changes(self):
         manifest = self.build()
         package.install(self.output, self.target)
-        (self.target / ".kotoba-state/backups/000001.bin").unlink()
+        (self.target / ".ruri-state/backups/000001.bin").unlink()
         with self.assertRaises(ValidationError):
             package.rollback(self.target)
         self.assert_installed(manifest)
@@ -695,7 +695,7 @@ class PackageTests(unittest.TestCase):
     def test_no_transaction_recovery_is_idempotent_and_readonly(self):
         for _ in range(2):
             self.assertEqual(package.recover(self.target)["status"], "no_transaction")
-        self.assertFalse((self.target / ".kotoba-state").exists())
+        self.assertFalse((self.target / ".ruri-state").exists())
         self.assert_original()
 
     def test_unrecognized_or_dangerous_state_is_not_modified(self):
@@ -705,12 +705,12 @@ class PackageTests(unittest.TestCase):
         for field, value in (("backup", "../game.exe"), ("path", "winmm_orig.dll"), ("state", "anything")):
             changed = copy.deepcopy(original)
             changed["files"][0][field] = value
-            self.write_json(self.target / ".kotoba-state/journal.json", changed)
+            self.write_json(self.target / ".ruri-state/journal.json", changed)
             with self.assertRaises(ValidationError):
                 package.recover(self.target)
             self.assert_installed(manifest)
-        self.write_json(self.target / ".kotoba-state/journal.json", original)
-        (self.target / ".kotoba-state/lock").write_bytes(b"unknown lock")
+        self.write_json(self.target / ".ruri-state/journal.json", original)
+        (self.target / ".ruri-state/lock").write_bytes(b"unknown lock")
         with self.assertRaises(ValidationError):
             package.recover(self.target)
         self.assert_installed(manifest)
@@ -734,7 +734,7 @@ class PackageTests(unittest.TestCase):
     def test_hardlinked_backup_is_rejected(self):
         manifest = self.build()
         package.install(self.output, self.target)
-        os.link(self.target / ".kotoba-state/backups/000001.bin", self.base / "backup-alias")
+        os.link(self.target / ".ruri-state/backups/000001.bin", self.base / "backup-alias")
         with self.assertRaises(ValidationError):
             package.rollback(self.target)
         self.assert_installed(manifest)
@@ -824,7 +824,7 @@ class PackageTests(unittest.TestCase):
         self.build()
         external = self.base / "external-state"
         external.mkdir()
-        self.symlink(self.target / ".kotoba-state", external, directory=True)
+        self.symlink(self.target / ".ruri-state", external, directory=True)
         with self.assertRaises(ValidationError):
             package.install(self.output, self.target)
         with self.assertRaises(ValidationError):

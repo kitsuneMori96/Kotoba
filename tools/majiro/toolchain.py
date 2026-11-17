@@ -138,7 +138,7 @@ class Toolchain:
     def _invoke(self, content, operation, encoding):
         env = _environment(encoding)
         prefix = [_dotnet(), str(self.path)] if self.path.suffix.lower() == ".dll" else [str(self.path)]
-        with tempfile.TemporaryDirectory(prefix="kotoba-maji-") as temp:
+        with tempfile.TemporaryDirectory(prefix="ruri-maji-") as temp:
             work = Path(temp).resolve()
             env["DOTNET_CLI_HOME"] = str(work)
             if operation == "disassemble":
@@ -346,7 +346,7 @@ def build_toolchain(source_path, output_path) -> Path:
         if not gitlink.startswith("160000 commit " + record["revision"] + "\t"):
             raise ToolchainError("Submodule revision does not match the baseline gitlink")
     dotnet = _dotnet()
-    with tempfile.TemporaryDirectory(prefix="kotoba-maji-build-") as temp:
+    with tempfile.TemporaryDirectory(prefix="ruri-maji-build-") as temp:
         work = Path(temp).resolve()
         extracted = work / "source"
         extracted.mkdir()

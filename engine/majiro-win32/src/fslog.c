@@ -286,7 +286,7 @@ static INT_PTR CALLBACK font_dialog_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
   INT_PTR result;
   if (msg == WM_INITDIALOG) {
     ctx = (font_dialog_ctx *)lp;
-    SetPropW(hwnd, L"KotobaFontDialog", (HANDLE)ctx);
+    SetPropW(hwnd, L"RuriFontDialog", (HANDLE)ctx);
     result = ctx->proc(hwnd, msg, wp, ctx->param);
     SetWindowTextW(hwnd, L"选择字体");
     SetDlgItemTextW(hwnd, IDOK, L"确定");
@@ -294,10 +294,10 @@ static INT_PTR CALLBACK font_dialog_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
     EnumChildWindows(hwnd, translate_font_control, 0);
     return result;
   }
-  ctx = (font_dialog_ctx *)GetPropW(hwnd, L"KotobaFontDialog");
+  ctx = (font_dialog_ctx *)GetPropW(hwnd, L"RuriFontDialog");
   if (!ctx) return FALSE;
   result = ctx->proc(hwnd, msg, wp, lp);
-  if (msg == WM_NCDESTROY) RemovePropW(hwnd, L"KotobaFontDialog");
+  if (msg == WM_NCDESTROY) RemovePropW(hwnd, L"RuriFontDialog");
   return result;
 }
 
@@ -308,16 +308,16 @@ static INT_PTR CALLBACK about_dialog_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM
   INT_PTR result;
   if (msg == WM_INITDIALOG) {
     ctx = (about_dialog_ctx *)lp;
-    SetPropW(hwnd, L"KotobaAboutDialog", (HANDLE)ctx);
+    SetPropW(hwnd, L"RuriAboutDialog", (HANDLE)ctx);
     result = ctx->proc(hwnd, msg, wp, ctx->param);
     SetWindowTextW(hwnd, L"版本信息");
     return result;
   }
-  ctx = (about_dialog_ctx *)GetPropW(hwnd, L"KotobaAboutDialog");
+  ctx = (about_dialog_ctx *)GetPropW(hwnd, L"RuriAboutDialog");
   if (!ctx) return FALSE;
   result = ctx->proc(hwnd, msg, wp, lp);
   if (msg == WM_NCDESTROY) {
-    RemovePropW(hwnd, L"KotobaAboutDialog");
+    RemovePropW(hwnd, L"RuriAboutDialog");
     free(ctx);
   }
   return result;

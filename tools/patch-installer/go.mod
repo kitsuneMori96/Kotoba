@@ -1,3 +1,3 @@
-module kotoba-patch-installer
+module ruri-patch-installer
 
 go 1.21

@@ -455,10 +455,10 @@ void k_gdi_init(void) {
   MultiByteToWideChar(CP_UTF8, 0, "DengXian", -1, g_face, LF_FACESIZE);
   {
     char env[LF_FACESIZE * 2];
-    DWORD n = GetEnvironmentVariableA("KOTOBA_FONT", env, sizeof(env));
+    DWORD n = GetEnvironmentVariableA("RURI_FONT", env, sizeof(env));
     if (n > 0 && n < sizeof(env)) MultiByteToWideChar(CP_UTF8, 0, env, -1, g_face, LF_FACESIZE);
   }
-  g_trace = GetEnvironmentVariableA("KOTOBA_TRACE", NULL, 0) > 0;
+  g_trace = GetEnvironmentVariableA("RURI_TRACE", NULL, 0) > 0;
   init_legacy();
 
   k_iat_hook("GDI32.dll", "TextOutA", (void *)my_textout_a);

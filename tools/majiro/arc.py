@@ -149,7 +149,7 @@ class Archive:
             table.append(INDEX.pack(entry.key, cursor, size))
             cursor += size
         self._check_unchanged()
-        fd, temporary = tempfile.mkstemp(prefix=".kotoba-arc-", dir=output.parent)
+        fd, temporary = tempfile.mkstemp(prefix=".ruri-arc-", dir=output.parent)
         temporary = Path(temporary)
         try:
             with os.fdopen(fd, "wb") as stream:

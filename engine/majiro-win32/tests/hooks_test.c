@@ -62,12 +62,15 @@ void k_gdi_init(void) { gdi_calls++; }
 void k_msgbox_init(void) { msgbox_calls++; }
 void k_fs_init(void) { fs_calls++; }
 
+static const BYTE fc_prologue[7] = {0x80, 0x7B, 0x29, 0x00, 0x8D, 0x4B, 0x29};
+static const BYTE np_call[5] = {0xE8, 0x0C, 0xA9, 0x00, 0x00};
 static const struct { DWORD addr; const BYTE *sig; size_t len; } sigs[] = {
 #define S(a,s) {a,s,sizeof(s)}
   S(0x478E40,S_HASH), S(0x47C5D0,S_NEXT), S(0x47C610,S_COUNT), S(0x47C6C0,S_SKIP),
   S(0x47EE00,S_LEAD), S(0x47C650,S_LOWER), S(0x47C440,S_STRCHR), S(0x47C710,S_STRREV),
   S(0x4444C4,S_K1), S(0x44463B,S_K2), S(0x444870,S_K2), S(0x444D57,S_K3),
-  S(0x442AEF,S_K4), S(0x4444F3,S_M1), S(0x442B2E,S_M2)
+  S(0x442AEF,S_K4), S(0x4444F3,S_M1), S(0x442B2E,S_M2),
+  S(0x443EC2,fc_prologue), S(0x44421F,np_call)
 #undef S
 };
 static void setup(void) {
@@ -194,11 +197,11 @@ static void logs(void) {
     SetLastError(12345); k_log("synthetic %d", i); assert(GetLastError() == 12345);
   }
   temp_mode = file_mode = 0;
-  SetEnvironmentVariableA("KOTOBA_TRACE", NULL); SetLastError(12345);
+  SetEnvironmentVariableA("RURI_TRACE", NULL); SetLastError(12345);
   assert(!k_trace_enabled()); assert(GetLastError() == 12345);
-  SetEnvironmentVariableA("KOTOBA_TRACE", "1"); SetLastError(12345);
+  SetEnvironmentVariableA("RURI_TRACE", "1"); SetLastError(12345);
   assert(k_trace_enabled()); assert(GetLastError() == 12345);
-  SetEnvironmentVariableA("KOTOBA_TRACE", NULL);
+  SetEnvironmentVariableA("RURI_TRACE", NULL);
   puts("PASS: log success/failure and trace checks preserve LastError");
 }
 int main(int argc, char **argv) {
@@ -213,10 +216,10 @@ int main(int argc, char **argv) {
       g_nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size = 40;
     } else if (!strcmp(argv[1], "writefail")) fail_protect = 9;
     else assert(!strcmp(argv[1], "valid"));
-    SetLastError(12345); kotoba_init(); assert(GetLastError() == 12345);
+    SetLastError(12345); ruri_init(); assert(GetLastError() == 12345);
     if (!strcmp(argv[1], "valid")) { assert(gdi_calls == 1 && msgbox_calls == 1 && fs_calls == 1 && g_hooks_ready); }
     else { assert(!gdi_calls && !msgbox_calls && !fs_calls && !g_hooks_ready); }
-    kotoba_init(); assert(gdi_calls <= 1 && msgbox_calls <= 1 && fs_calls <= 1);
+    ruri_init(); assert(gdi_calls <= 1 && msgbox_calls <= 1 && fs_calls <= 1);
     if (!strcmp(argv[1], "writefail")) originals();
     printf("PASS: init gate %s\n", argv[1]);
   }

@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 )
 
-const magic = "KOTOBA-PATCH1"
+const magic = "RURI-PATCH1"
 
 type fileEntry struct {
 	Path         string `json:"path"`
@@ -114,7 +114,7 @@ func main() {
 	}
 
 	// Zip goes to a temp file: payloads are hundreds of MB.
-	tmpZip, err := os.CreateTemp(filepath.Dir(*out), ".kotoba-payload-*.zip")
+	tmpZip, err := os.CreateTemp(filepath.Dir(*out), ".ruri-payload-*.zip")
 	if err != nil {
 		die("temp zip: %v", err)
 	}

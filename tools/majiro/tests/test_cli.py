@@ -91,7 +91,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(main(["install", str(package), "--target", str(target), "--dry-run"]), 0)
         plan = json.loads(stdout.getvalue())["plan"]
         self.assertEqual([item["path"] for item in plan], ["winmm.dll"])
-        self.assertFalse((target / ".kotoba-state").exists())
+        self.assertFalse((target / ".ruri-state").exists())
         self.assertEqual((target / "winmm.dll").read_bytes(), b"before")
         from unittest.mock import patch
         with patch("tools.majiro.package._assert_not_running"):

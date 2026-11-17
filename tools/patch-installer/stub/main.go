@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	magic       = "KOTOBA-PATCH1"
+	magic       = "RURI-PATCH1"
 	trailerSize = 8 + 8 + len(magic)
 )
 
@@ -49,7 +49,26 @@ type installState struct {
 	GameExeSHA256 string      `json:"game_exe_sha256"`
 }
 
-const backupDirName = ".kotoba-backup"
+const (
+	backupDirName = ".ruri-backup"
+	// Earlier installers used this name; adopt it in place when found.
+	legacyBackupDirName = ".kotoba-backup"
+)
+
+// resolveBackupDir returns the backup directory for target, preferring the
+// current name and reusing a legacy one in place (no rename, so --check and a
+// cancelled install never touch the target).
+func resolveBackupDir(target string) string {
+	current := filepath.Join(target, backupDirName)
+	if _, err := os.Stat(current); err == nil {
+		return current
+	}
+	legacy := filepath.Join(target, legacyBackupDirName)
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy
+	}
+	return current
+}
 
 func matchesOld(state installState, path, sum string) bool {
 	for _, f := range state.Files {
@@ -166,7 +185,7 @@ func copyFile(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
 	}
-	tmp := dst + ".kotoba-tmp"
+	tmp := dst + ".ruri-tmp"
 	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
@@ -192,7 +211,7 @@ func writeFile(dst string, r io.Reader) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
 	}
-	tmp := dst + ".kotoba-tmp"
+	tmp := dst + ".ruri-tmp"
 	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
@@ -290,7 +309,7 @@ func main() {
 		fail("游戏版本不匹配。\n期望 exe 摘要: %s\n实际 exe 摘要: %s\n本补丁只适用于该版本，未做任何修改。", man.GameExeSHA256, sum)
 	}
 
-	backupDir := filepath.Join(target, backupDirName)
+	backupDir := resolveBackupDir(target)
 	installed := false
 	var oldState installState
 	if _, err := os.Stat(backupDir); err == nil {
@@ -484,7 +503,7 @@ func main() {
 	if err := writeFile(filepath.Join(backupDir, "install.json"), strings.NewReader(string(data))); err != nil {
 		fail("写入安装状态失败: %v", err)
 	}
-	fmt.Println("\n安装完成。备份与原文件摘要记录在 .kotoba-backup。")
+	fmt.Printf("\n安装完成。备份与原文件摘要记录在 %s。\n", filepath.Base(backupDir))
 	fmt.Println("如需撤销：运行本程序并加参数 --rollback。")
 	waitExit(0)
 }
@@ -514,7 +533,7 @@ func restore(target, backupDir string, state installState, written []string) {
 }
 
 func doRollback(target string) {
-	backupDir := filepath.Join(target, backupDirName)
+	backupDir := resolveBackupDir(target)
 	raw, err := os.ReadFile(filepath.Join(backupDir, "install.json"))
 	if err != nil {
 		fail("未找到安装状态，无法撤销: %v", err)

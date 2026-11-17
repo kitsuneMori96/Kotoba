@@ -76,10 +76,10 @@ static void clear_real(void) { real_cmd_a = NULL; real_cmd_w = NULL; real_str_a 
 static void command_pair(DWORD_PTR flags, MCI_OPEN_PARMSA *a, MCI_OPEN_PARMSW *w) {
   expected_flags = flags; expected_msg = MCI_OPEN;
   expected_param = a; SetLastError(12345);
-  assert(kotoba_mciSendCommandA(7, MCI_OPEN, flags, (DWORD_PTR)a) == 321);
+  assert(ruri_mciSendCommandA(7, MCI_OPEN, flags, (DWORD_PTR)a) == 321);
   assert(GetLastError() == 54321);
   expected_param = w; SetLastError(12345);
-  assert(kotoba_mciSendCommandW(7, MCI_OPEN, flags, (DWORD_PTR)w) == 321);
+  assert(ruri_mciSendCommandW(7, MCI_OPEN, flags, (DWORD_PTR)w) == 321);
   assert(GetLastError() == 54321);
 }
 int main(void) {
@@ -89,11 +89,11 @@ int main(void) {
   for (i = 1; i <= 5; i++) {
     MCIERROR error = i == 5 ? MCIERR_UNSUPPORTED_FUNCTION : MCIERR_CANNOT_LOAD_DRIVER;
     resolve_mode = i; clear_real();
-    SetLastError(12345); assert(kotoba_mciSendCommandA(0, 0, 0, 0) == error); assert(GetLastError() == 12345);
-    SetLastError(12345); assert(kotoba_mciSendCommandW(0, 0, 0, 0) == error); assert(GetLastError() == 12345);
+    SetLastError(12345); assert(ruri_mciSendCommandA(0, 0, 0, 0) == error); assert(GetLastError() == 12345);
+    SetLastError(12345); assert(ruri_mciSendCommandW(0, 0, 0, 0) == error); assert(GetLastError() == 12345);
     strcpy(ret_a, "keep"); wcscpy(ret_w, L"keep");
-    SetLastError(12345); assert(kotoba_mciSendStringA(NULL, ret_a, 8, NULL) == error); assert(GetLastError() == 12345);
-    SetLastError(12345); assert(kotoba_mciSendStringW(NULL, ret_w, 8, NULL) == error); assert(GetLastError() == 12345);
+    SetLastError(12345); assert(ruri_mciSendStringA(NULL, ret_a, 8, NULL) == error); assert(GetLastError() == 12345);
+    SetLastError(12345); assert(ruri_mciSendStringW(NULL, ret_w, 8, NULL) == error); assert(GetLastError() == 12345);
     assert(!strcmp(ret_a, "keep")); assert(!wcscmp(ret_w, L"keep"));
   }
   assert(!calls); puts("PASS: all four wrappers return MCI errors for module/path/load/export failures");
@@ -118,11 +118,11 @@ int main(void) {
   trace_on = 1;
   expected_msg = MCI_STATUS; expected_flags = 0; expected_param = NULL;
   before = logs; SetLastError(12345);
-  assert(kotoba_mciSendCommandA(7, MCI_STATUS, 0, 0) == 321); assert(GetLastError() == 54321); assert(logs == before);
+  assert(ruri_mciSendCommandA(7, MCI_STATUS, 0, 0) == 321); assert(GetLastError() == 54321); assert(logs == before);
   expected_param = "play test"; SetLastError(12345);
-  assert(kotoba_mciSendStringA(expected_param, ret_a, 8, NULL) == 322); assert(GetLastError() == 54321); assert(!strcmp(ret_a, "A"));
+  assert(ruri_mciSendStringA(expected_param, ret_a, 8, NULL) == 322); assert(GetLastError() == 54321); assert(!strcmp(ret_a, "A"));
   expected_param = L"play test"; SetLastError(12345);
-  assert(kotoba_mciSendStringW(expected_param, ret_w, 8, NULL) == 323); assert(GetLastError() == 54321); assert(!wcscmp(ret_w, L"W"));
+  assert(ruri_mciSendStringW(expected_param, ret_w, 8, NULL) == 323); assert(GetLastError() == 54321); assert(!wcscmp(ret_w, L"W"));
   assert(loads); puts("PASS: controlled same-directory path, A/W ID/unset/string flags, trace gating, forwarded arguments/results/LastError");
   return 0;
 }
