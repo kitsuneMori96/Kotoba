@@ -52,6 +52,13 @@ def parser():
             cmd.add_argument("--target-encoding", choices=("cp932", "utf8"), required=True)
             cmd.add_argument("--allow-offset-changes", action="store_true", help="Opt out of static old-save offset protection; never implies runtime compatibility")
             cmd.add_argument("--report", type=Path, required=True)
+    cmd = commands.add_parser("audit-translation", help="Pre-deployment gate: coverage, line identity, ldstr inventory, ruby/choice integrity, format")
+    cmd.add_argument("script", type=Path)
+    cmd.add_argument("--encoding", choices=("cp932", "utf8"), required=True)
+    cmd.add_argument("--script-name", help="Stable logical script name; defaults to the exchange script name")
+    cmd.add_argument("--exchange", type=Path, required=True)
+    cmd.add_argument("--nondisplay", type=Path, help="JSON {ldstr offset: reason} for reviewed non-display strings")
+    cmd.add_argument("--out", type=Path, required=True, help="New local JSON report path")
     cmd = commands.add_parser("verify-mjo", help="Check bytecode structure or compare a no-content-change round trip")
     cmd.add_argument("script", type=Path)
     cmd.add_argument("--against", type=Path)
@@ -128,6 +135,14 @@ def run(args):
             new_bytes(args.out, output)
             new_json(args.report, report)
             print(json.dumps(report))
+    elif args.command == "audit-translation":
+        from .audit_translation import audit_translation
+        result = audit_translation(args.script.read_bytes(), load_json(args.exchange),
+                                   args.script_name, args.encoding,
+                                   load_json(args.nondisplay) if args.nondisplay else None)
+        new_json(args.out, result)
+        print(json.dumps({key: result[key] for key in ("records", "ldstr", "ruby_pairs", "choice_groups", "fail", "warn", "pass")}))
+        return 0 if result["pass"] else 2
     elif args.command == "verify-mjo":
         data = args.script.read_bytes()
         if args.against:
