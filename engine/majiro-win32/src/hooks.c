@@ -609,7 +609,7 @@ static void k_vm_dump(const char *tag) {
 }
 
 static void __attribute__((used)) __cdecl k_np_fix(const char *s) {
-  static const char jp[] = "\xE4\xB8\xBB\xE5\x85\xAC\xE5\x85\xAC"; /* 主人公 */
+  static const char jp[] = "\xE4\xB8\xBB\xE4\xBA\xBA\xE5\x85\xAC"; /* 主人公 */
   static const char cn[] = "\xE5\x81\xA5\xE5\xBF\x97";             /* 健志 */
   static const char colon[] = "\xEF\xBC\x9A";                      /* ： */
   char *p = (char *)s;
