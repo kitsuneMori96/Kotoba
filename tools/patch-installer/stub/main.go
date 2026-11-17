@@ -51,6 +51,15 @@ type installState struct {
 
 const backupDirName = ".kotoba-backup"
 
+func matchesOld(state installState, path, sum string) bool {
+	for _, f := range state.Files {
+		if f.Path == path && strings.EqualFold(f.SHA256, sum) {
+			return true
+		}
+	}
+	return false
+}
+
 func setConsoleUTF8() {
 	k32 := syscall.NewLazyDLL("kernel32.dll")
 	proc := k32.NewProc("SetConsoleOutputCP")
@@ -283,10 +292,14 @@ func main() {
 
 	backupDir := filepath.Join(target, backupDirName)
 	installed := false
+	var oldState installState
 	if _, err := os.Stat(backupDir); err == nil {
 		if _, err2 := os.Stat(filepath.Join(backupDir, "install.json")); err2 == nil {
 			fmt.Println("检测到本补丁的备份目录，将视为重新安装（不重复备份）。")
 			installed = true
+			if raw, err := os.ReadFile(filepath.Join(backupDir, "install.json")); err == nil {
+				_ = json.Unmarshal(raw, &oldState)
+			}
 		} else {
 			fail("目录 %s 已存在但不是本补丁的备份，请先手动确认后移除。", backupDir)
 		}
@@ -321,6 +334,8 @@ func main() {
 				// already this version
 			} else if e.BeforeSHA256 != "" && strings.EqualFold(cur, e.BeforeSHA256) {
 				// pristine, will be replaced
+			} else if installed && matchesOld(oldState, e.Path, cur) {
+				// previous version of this patch, will be upgraded
 			} else if installed {
 				fail("文件 %s 与预期不符（既非原版也非本补丁），已中止。", e.Path)
 			} else {
@@ -371,11 +386,7 @@ func main() {
 	}
 
 	if installed {
-		var old installState
-		if raw, err := os.ReadFile(filepath.Join(backupDir, "install.json")); err == nil {
-			_ = json.Unmarshal(raw, &old)
-		}
-		for _, c := range old.Created {
+		for _, c := range oldState.Created {
 			state.Created = append(state.Created, c)
 		}
 	} else {
@@ -419,6 +430,45 @@ func main() {
 			fail("%s 写入后校验失败（已尝试回退）", p.entry.Path)
 		}
 		fmt.Printf("  [%d/%d] %s\n", i+1, len(plans), p.entry.Path)
+	}
+
+	if installed {
+		newPaths := map[string]bool{}
+		for _, e := range man.Files {
+			newPaths[e.Path] = true
+		}
+		oldCreated := map[string]bool{}
+		for _, c := range oldState.Created {
+			oldCreated[c] = true
+		}
+		removed := 0
+		for _, f := range oldState.Files {
+			if newPaths[f.Path] || !oldCreated[f.Path] {
+				continue
+			}
+			dst, err := safeJoin(target, f.Path)
+			if err != nil {
+				continue
+			}
+			got, err := sha256File(dst)
+			if err != nil || !strings.EqualFold(got, f.SHA256) {
+				continue
+			}
+			if os.Remove(dst) == nil {
+				fmt.Printf("  移除旧版多余文件 %s\n", f.Path)
+				removed++
+			}
+		}
+		if removed > 0 {
+			var kept []string
+			for _, c := range state.Created {
+				if newPaths[c] || c == "winmm_orig.dll" {
+					kept = append(kept, c)
+				}
+			}
+			state.Created = kept
+			os.Remove(filepath.Join(target, "scenario"))
+		}
 	}
 
 	if _, err := os.Stat(origDLL); err != nil {

@@ -12,7 +12,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 )
 
 const magic = "KOTOBA-PATCH1"
@@ -70,34 +69,12 @@ func main() {
 		die("cannot hash game exe: %v", err)
 	}
 
-	var rels []string
-	for _, name := range []string{"winmm.dll", "update.arc", "fastdata.arc"} {
+	rels := []string{"winmm.dll", "update.arc", "fastdata.arc"}
+	for _, name := range rels {
 		if _, err := os.Stat(filepath.Join(*source, name)); err != nil {
 			die("missing %s in source: %v", name, err)
 		}
-		rels = append(rels, name)
 	}
-	scenDir := filepath.Join(*source, "scenario")
-	var scen []string
-	err = filepath.Walk(scenDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return err
-		}
-		rel, err := filepath.Rel(*source, path)
-		if err != nil {
-			return err
-		}
-		scen = append(scen, filepath.ToSlash(rel))
-		return nil
-	})
-	if err != nil {
-		die("cannot list scenario: %v", err)
-	}
-	if len(scen) == 0 {
-		die("no scripts under %s", scenDir)
-	}
-	sort.Strings(scen)
-	rels = append(rels, scen...)
 
 	man := manifest{Version: *version, GameExe: *exeName, GameExeSHA256: exeSum, Note: *note}
 	for _, rel := range rels {
