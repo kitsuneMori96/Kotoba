@@ -617,6 +617,16 @@ static void __attribute__((used)) __cdecl k_np_fix(const char *s) {
   if (k_trace_enabled()) {
     k_log("np: n=%d '%s'", n, n > 0 ? p : "");
     k_vm_dump("np");
+  } else if (n >= 0 && n <= 24) {
+    char hex[3 * 24 + 1];
+    int i;
+    for (i = 0; i < n; i++) {
+      hex[i * 3 + 0] = "0123456789abcdef"[((unsigned char)p[i]) >> 4];
+      hex[i * 3 + 1] = "0123456789abcdef"[((unsigned char)p[i]) & 15];
+      hex[i * 3 + 2] = ' ';
+    }
+    hex[i * 3] = 0;
+    k_log("np hex: n=%d %s", n, hex);
   }
   if (n < 9 || memcmp(p, jp, 9) != 0) return;
   memmove(p + 6, p + 9, (size_t)(n - 9 + 1));
