@@ -16,4 +16,8 @@ Thumbs.db
 
 # 本地研究副本与引擎构建产物（不含游戏资源）
 work/
+export/
 engine/majiro-win32/build/
+tools/majiro/build/
+__pycache__/
+*.pyc

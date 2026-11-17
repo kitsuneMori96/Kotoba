@@ -1,0 +1,136 @@
+diff --git a/src/MajiroLib/Helpers.cs b/src/MajiroLib/Helpers.cs
+index 6eae2dfdcf43996a247a721d9f704d3306003d2d..a6ce870da4e9670a715873a0bdda3537c541ebd8 100644
+--- a/src/MajiroLib/Helpers.cs
++++ b/src/MajiroLib/Helpers.cs
+@@ -9,9 +9,75 @@ namespace Majiro {
+ 	public static class Helpers {
+ 		public static readonly Encoding ShiftJis;
+ 
++		// Local patch: string literal codec is switchable for UTF-8 script experiments.
++		public static readonly Encoding StringEncoding;
++
++		// Decoder that turns bytes it cannot decode into U+E000+byte markers, so that
++		// Majiro inline control codes such as 0x81 0x01 survive a decode/encode cycle.
++		public static readonly Encoding StringReadEncoding;
++
++		public static bool Utf8Strings { get; private set; }
++
+ 		static Helpers() {
+ 			Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+ 			ShiftJis = Encoding.GetEncoding(932, EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
++			Utf8Strings = string.Equals(Environment.GetEnvironmentVariable("MAJIRO_STRENC"), "utf8", StringComparison.OrdinalIgnoreCase);
++			StringEncoding = Utf8Strings ? new UTF8Encoding(false, true) : ShiftJis;
++			var inner = Utf8Strings ? new UTF8Encoding(false, false) : Encoding.GetEncoding(932);
++			StringReadEncoding = Encoding.GetEncoding(inner.CodePage,
++				EncoderFallback.ReplacementFallback, new RawByteDecoderFallback());
++		}
++
++		public const char RawByteBase = '\uE000';
++
++		public static string DecodeString(byte[] bytes) {
++			string text = StringReadEncoding.GetString(bytes);
++			var sb = new StringBuilder(text.Length);
++			foreach(char c in text)
++				sb.Append(c <= '\u001F' || c == '\u007F' ? (char)(RawByteBase + c) : c);
++			return sb.ToString();
++		}
++
++		public static byte[] EncodeString(string value) {
++			var buffer = new MemoryStream();
++			for(int i = 0; i < value.Length; i++) {
++				char c = value[i];
++				if(c >= RawByteBase && c <= RawByteBase + 0xFF) {
++					buffer.WriteByte((byte)(c - RawByteBase));
++					continue;
++				}
++				int len = char.IsHighSurrogate(c) && i + 1 < value.Length && char.IsLowSurrogate(value[i + 1]) ? 2 : 1;
++				byte[] encoded = StringEncoding.GetBytes(value.ToCharArray(i, len));
++				buffer.Write(encoded, 0, encoded.Length);
++				i += len - 1;
++			}
++			return buffer.ToArray();
++		}
++
++		public sealed class RawByteDecoderFallback : DecoderFallback {
++			public override int MaxCharCount => 8;
++			public override DecoderFallbackBuffer CreateFallbackBuffer() => new Buffer();
++
++			private sealed class Buffer : DecoderFallbackBuffer {
++				private byte[] bytes = Array.Empty<byte>();
++				private int index;
++				public override int Remaining => bytes.Length - index;
++				public override bool Fallback(byte[] bytesUnknown, int indexInStream) {
++					bytes = bytesUnknown;
++					index = 0;
++					return bytes.Length > 0;
++				}
++				public override char GetNextChar() => index < bytes.Length ? (char)(RawByteBase + bytes[index++]) : '\0';
++				public override bool MovePrevious() {
++					if(index <= 0) return false;
++					index--;
++					return true;
++				}
++				public override void Reset() {
++					bytes = Array.Empty<byte>();
++					index = 0;
++				}
++			}
+ 		}
+ 
+ 		public static string ReadSizedString(this BinaryReader reader, int size, Encoding encoding = null) =>
+diff --git a/src/MajiroLib/Script/Assembler.cs b/src/MajiroLib/Script/Assembler.cs
+index c6dd24de11ca70fe5787c72f34150cb0839e08cc..49f4a59f6314d117c4f73f48e6cd3bc7d39c6657 100644
+--- a/src/MajiroLib/Script/Assembler.cs
++++ b/src/MajiroLib/Script/Assembler.cs
+@@ -1,4 +1,4 @@
+-﻿using System;
++using System;
+ using System.Collections.Generic;
+ using System.Diagnostics;
+ using System.Globalization;
+@@ -657,7 +657,7 @@ namespace Majiro.Script {
+ 			script.ToInstructionList();
+ 
+ 			using var ms = new MemoryStream();
+-			using var bw = new BinaryWriter(ms, Helpers.ShiftJis, true);
++			using var bw = new BinaryWriter(ms, Helpers.StringEncoding, true);
+ 
+ 			AssembleByteCode(script, bw, out int readMarkCount);
+ 
+@@ -707,7 +707,7 @@ namespace Majiro.Script {
+ 
+ 					case 's':
+ 						// string data
+-						var bytes = Helpers.ShiftJis.GetBytes(instruction.String);
++						var bytes = Helpers.EncodeString(instruction.String);
+ 						writer.Write((ushort)(bytes.Length + 1));
+ 						writer.Write(bytes);
+ 						writer.Write((byte)0);
+@@ -787,7 +787,7 @@ namespace Majiro.Script {
+ 							throw new Exception("Unable to determine size of an instruction with an externalized string. Internalize all strings before encoding the script!");
+ 						Debug.Assert(instruction.String != null);
+ 						size += 2;
+-						size += (uint)Helpers.ShiftJis.GetByteCount(instruction.String) + 1;
++						size += (uint)Helpers.EncodeString(instruction.String).Length + 1;
+ 						break;
+ 
+ 					case 'f':
+diff --git a/src/MajiroLib/Script/Disassembler.cs b/src/MajiroLib/Script/Disassembler.cs
+index 19864b226012dff7819caa2e2ce26f307bf67d9f..ae1ff8dd23191c6719afa9be8c41ee8d1560a0b3 100644
+--- a/src/MajiroLib/Script/Disassembler.cs
++++ b/src/MajiroLib/Script/Disassembler.cs
+@@ -1,4 +1,4 @@
+-﻿using System;
++using System;
+ using System.Collections.Generic;
+ using System.Diagnostics;
+ using System.Globalization;
+@@ -102,7 +102,7 @@ namespace Majiro.Script {
+ 						var bytes = reader.ReadBytes(size - 1);
+ 						byte nullTerminator = reader.ReadByte();
+ 						Debug.Assert(nullTerminator == 0);
+-						instruction.String = Helpers.ShiftJis.GetString(bytes);
++						instruction.String = Helpers.DecodeString(bytes);
+ 						break;
+ 
+ 					case 'f':

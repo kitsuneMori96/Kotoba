@@ -65,18 +65,22 @@ static HANDLE WINAPI my_create_w(LPCWSTR path, DWORD access, DWORD share,
                                  HANDLE tmpl) {
   char utf8[MAX_PATH * 3];
   HANDLE h;
+  DWORD saved = GetLastError();
   int logit = 0;
-  if (path) {
+  if (k_trace_enabled() && path) {
     int n = WideCharToMultiByte(CP_UTF8, 0, path, -1, utf8, sizeof(utf8), NULL, NULL);
     if (n > 0 && interesting(utf8)) logit = 1;
   }
+  SetLastError(saved);
   h = real_create_w(path, access, share, sa, disp, flags, tmpl);
+  saved = GetLastError();
   if (logit) {
     if (h == INVALID_HANDLE_VALUE)
-      k_log("openW: %s -> FAIL err=%lu", utf8, GetLastError());
+      k_log("openW: %s -> FAIL err=%lu", utf8, saved);
     else
       k_log("openW: %s -> ok", utf8);
   }
+  SetLastError(saved);
   return h;
 }
 
@@ -84,22 +88,25 @@ static HANDLE WINAPI my_create_a(LPCSTR path, DWORD access, DWORD share,
                                  LPSECURITY_ATTRIBUTES sa, DWORD disp, DWORD flags,
                                  HANDLE tmpl) {
   WCHAR wide[MAX_PATH * 2];
+  DWORD saved = GetLastError();
+  int resolved;
   if (!path) return real_create_a(path, access, share, sa, disp, flags, tmpl);
-  if (interesting(path)) k_log("openA: %s", path);
-  if (disp == OPEN_EXISTING && resolve(path, wide)) return real_create_w(wide, access, share, sa, disp, flags, tmpl);
+  if (k_trace_enabled() && interesting(path)) k_log("openA: %s", path);
+  resolved = disp == OPEN_EXISTING && resolve(path, wide);
+  SetLastError(saved);
+  if (resolved) return real_create_w(wide, access, share, sa, disp, flags, tmpl);
   return real_create_a(path, access, share, sa, disp, flags, tmpl);
 }
 
 static DWORD WINAPI my_attrs_a(LPCSTR path) {
   WCHAR wide[MAX_PATH * 2];
+  DWORD saved = GetLastError();
+  int resolved;
   if (!path) return real_attrs_a(path);
-  if (resolve(path, wide)) {
-    DWORD a = real_attrs_w(wide);
-    if (interesting(path)) k_log("attrA+: %s", path);
-    return a;
-  }
-  if (interesting(path)) k_log("attrA-: %s", path);
-  return real_attrs_a(path);
+  resolved = resolve(path, wide);
+  if (k_trace_enabled() && interesting(path)) k_log("attrA%s: %s", resolved ? "+" : "-", path);
+  SetLastError(saved);
+  return resolved ? real_attrs_w(wide) : real_attrs_a(path);
 }
 
 static const struct { const WCHAR *ja, *zh; } k_title_zh[] = {
@@ -116,10 +123,12 @@ static BOOL WINAPI my_settext_a(HWND hwnd, LPCSTR text) {
   w = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, buf, 1024);
   if (w <= 0) w = MultiByteToWideChar(932, 0, text, -1, buf, 1024);
   if (w <= 0) return 0;
-  {
+  if (k_trace_enabled()) {
+    DWORD saved = GetLastError();
     char u8[512];
     if (WideCharToMultiByte(CP_UTF8, 0, buf, -1, u8, sizeof(u8), NULL, NULL) > 0)
       k_log("settext: %s", u8);
+    SetLastError(saved);
   }
   for (k = 0; k < sizeof(k_title_zh) / sizeof(k_title_zh[0]); k++)
     if (wcscmp(buf, k_title_zh[k].ja) == 0) return real_settext_w(hwnd, k_title_zh[k].zh);
@@ -154,7 +163,7 @@ static HWND WINAPI my_cw_ex_a(DWORD ex, LPCSTR cls, LPCSTR title, DWORD style, i
       title_p = title_w;
       for (k = 0; k < sizeof(k_title_zh) / sizeof(k_title_zh[0]); k++)
         if (wcscmp(title_w, k_title_zh[k].ja) == 0) { title_p = k_title_zh[k].zh; break; }
-      k_log("title: %s", title);
+      if (k_trace_enabled()) k_log("title: %s", title);
     }
   }
   if (!cls_p && cls) return real_cw_ex_a(ex, cls, title, style, x, y, w, h, parent, menu, inst, param);
@@ -328,7 +337,7 @@ static INT_PTR WINAPI my_dialog_a(HINSTANCE inst, LPCSTR name, HWND parent, DLGP
     ctx->proc = proc;
     ctx->param = param;
     MultiByteToWideChar(CP_ACP, 0, name, -1, wn, 64);
-    k_log("dialogA: %s", name);
+    if (k_trace_enabled()) k_log("dialogA: %s", name);
     return DialogBoxParamW(inst, wn, parent, about_dialog_proc, (LPARAM)ctx);
   }
   return real_dialog_a(inst, name, parent, proc, param);
@@ -343,10 +352,10 @@ static HWND WINAPI my_createdlg_a(HINSTANCE inst, LPCSTR name, HWND parent, DLGP
     ctx->proc = proc;
     ctx->param = param;
     MultiByteToWideChar(CP_ACP, 0, name, -1, wn, 64);
-    k_log("createdlgA: %s", name);
+    if (k_trace_enabled()) k_log("createdlgA: %s", name);
     return CreateDialogParamW(inst, wn, parent, about_dialog_proc, (LPARAM)ctx);
   }
-  if (name && HIWORD(name)) k_log("createdlgA: %s", name);
+  if (k_trace_enabled() && name && HIWORD(name)) k_log("createdlgA: %s", name);
   return real_createdlg_a(inst, name, parent, proc, param);
 }
 

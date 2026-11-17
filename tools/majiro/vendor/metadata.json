@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "upstream": {
+    "url": "https://github.com/AtomCrafty/MajiroTools.git",
+    "revision": "e0261df508b6c8065865bb51b4059263cef84394",
+    "tree": "7992638b6b4e4e1dc87af30ef949c0be7a18b787"
+  },
+  "submodules": {
+    "src/VToolBase": {
+      "url": "git@github.com:AtomCrafty/VToolBase.git",
+      "revision": "3307a999ad527dd733d857443cc9f072eb19c7e8",
+      "tree": "c24821f238c0d2b6d29cd2bbff191a2a327f6bdd"
+    }
+  },
+  "archive_sha256": {
+    ".": "4282e5130d8a34f099b753a270b65faa099de67af197d29bdfce93b450285fa0",
+    "src/VToolBase": "2ae136f411831aa41c798a2ae67d739864130d530f6dd49b8282710f90aa4660"
+  },
+  "license": {
+    "spdx": "MIT",
+    "copyright": "Copyright (c) 2021 Mario Welzig, Robert Jordan",
+    "file": "LICENSE",
+    "sha256": "eac38510b9f267bfcba80dbbed1bc795aeb174b91b81a14a2b4a55bc11699b3f"
+  },
+  "patch": {
+    "file": "string-codec.patch",
+    "sha256": "cd722d03cb728c077626d85bc35abe4554038e15ea0c3ac3acdbcf7799373174",
+    "description": "Exact local diff: MAJIRO_STRENC=utf8 string codec and U+E000+byte lossless markers; assembler/disassembler codec substitutions and BOM removal.",
+    "files": {
+      "src/MajiroLib/Helpers.cs": {
+        "baseline_sha256": "5ded049284ff59fb46181ce140f46962635c4f861bb5a1d9692673de4f1dd3ab",
+        "patched_sha256": "4760430b392306f27946b48608b9c4fde9c48f7d30243880aee644c60ba8f68a"
+      },
+      "src/MajiroLib/Script/Assembler.cs": {
+        "baseline_sha256": "23083b9194a0659b9a06901b6db9ac1e3976bead27b9afeed17a421fccd26717",
+        "patched_sha256": "eb3809b0ba0e9799717a7d0eb92764bf29a838b88f4547ce3ff33eda6bd0f590"
+      },
+      "src/MajiroLib/Script/Disassembler.cs": {
+        "baseline_sha256": "d8ae67a65def99c3c927d1a38dd77e70328d2d5ca2cd0ca0921e38d3500177ef",
+        "patched_sha256": "0f1116f6858ddb2ac6acb14017d252d136bb3501963c4b1b9961c7e212e3263d"
+      }
+    }
+  },
+  "opcode": {
+    "file": "Opcode.cs",
+    "source_path": "src/MajiroLib/Script/Opcode.cs",
+    "revision": "e0261df508b6c8065865bb51b4059263cef84394",
+    "license": "MIT; see LICENSE",
+    "sha256": "936944c7ec5fc105e95ed163a2fa1bc5759224ba7d874188744296619ec6146b"
+  },
+  "build": {
+    "project": "src/MajiroTools/MajiroTools.csproj",
+    "configuration": "Release",
+    "target_framework": "net7.0",
+    "language_version": "11.0",
+    "roll_forward": "LatestMajor",
+    "network": "forbidden; local NuGet package archives only"
+  }
+}

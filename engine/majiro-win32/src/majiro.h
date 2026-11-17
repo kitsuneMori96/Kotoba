@@ -20,7 +20,9 @@ const char *__cdecl k_strchr(const char *s, unsigned int ch);
 char *__cdecl k_strrev(char *s);
 
 void k_log(const char *fmt, ...);
-void k_iat_hook(const char *dll, const char *fn, void *repl);
+int k_trace_enabled(void);
+int k_readable(const void *ptr, SIZE_T len);
+int k_iat_hook(const char *dll, const char *fn, void *repl);
 void k_gdi_init(void);
 void k_fs_init(void);
 void kotoba_init(void);
