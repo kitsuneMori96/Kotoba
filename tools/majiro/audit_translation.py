@@ -36,7 +36,7 @@ def _groups(script, texts):
     return ruby, choices
 
 
-def audit_translation(data, document, script_name, encoding, nondisplay=None):
+def audit_translation(data, document, script_name, encoding, nondisplay=None, terms=None, strict_terms=False):
     nondisplay = {int(key): value for key, value in (nondisplay or {}).items()}
     script_name = script_name or document.get("script")
     script = Script(data)
@@ -124,9 +124,21 @@ def audit_translation(data, document, script_name, encoding, nondisplay=None):
     for char, offset in stack:
         flag("brackets", offset, f"unclosed {char!r}")
 
+    if terms:
+        from .terms import ledger_violations
+        rows = [{"script": script_name, "offset": r["offset"], "kind": r["kind"],
+                 "source": r["source"], "translation": r["translation"]}
+                for r in document["records"]]
+        for item in ledger_violations(rows, terms):
+            severity = "fail" if (strict_terms and item["severity"] == "fail") else "warn"
+            flag("term", item["offset"],
+                 f"{item['term']} should read {item['expected']!r}, found {item['translation']!r}",
+                 severity)
+
     fails = [f for f in flags if f["severity"] == "fail"]
     return {"script": script_name, "records": len(document["records"]),
             "text": sum(1 for r in document["records"] if r["kind"] == "text"),
             "ldstr": len(allowed), "ruby_pairs": len(ruby), "choice_groups": len(choices),
+            "terms": sum(1 for f in flags if f["check"] == "term"),
             "flags": flags, "fail": len(fails),
             "warn": len(flags) - len(fails), "pass": not fails}

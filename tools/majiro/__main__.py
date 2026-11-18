@@ -58,7 +58,44 @@ def parser():
     cmd.add_argument("--script-name", help="Stable logical script name; defaults to the exchange script name")
     cmd.add_argument("--exchange", type=Path, required=True)
     cmd.add_argument("--nondisplay", type=Path, help="JSON {ldstr offset: reason} for reviewed non-display strings")
+    cmd.add_argument("--term-ledger", type=Path, help="agent_term_ledger.json; flags records that break a reviewed term")
+    cmd.add_argument("--term-strict", action="store_true", help="Treat confirmed-term deviations as blocking, not warnings")
     cmd.add_argument("--out", type=Path, required=True, help="New local JSON report path")
+    cmd = commands.add_parser("term-check", help="Cross-chapter term consistency: same source, different translation")
+    cmd.add_argument("--exchange-dir", type=Path, required=True)
+    cmd.add_argument("--ledger", type=Path, required=True)
+    cmd.add_argument("--out", type=Path, required=True, help="New local JSON report path")
+    cmd.add_argument("--md", type=Path, help="Optional new Markdown adjudication table")
+    cmd = commands.add_parser("corpus", help="Regenerate the corpus TSV, term table, index and conflict report")
+    cmd.add_argument("--directory", type=Path, required=True)
+    cmd.add_argument("--ledger", type=Path)
+    cmd = commands.add_parser("review", help="Rebuild a review document from the shipped MJO, not from a preview")
+    cmd.add_argument("--pristine", type=Path, required=True)
+    cmd.add_argument("--translated", type=Path, required=True)
+    cmd.add_argument("--exchange", type=Path, required=True)
+    cmd.add_argument("--script-name", required=True)
+    cmd.add_argument("--encoding", choices=("cp932", "utf8"), default="cp932")
+    cmd.add_argument("--target-encoding", choices=("cp932", "utf8"), default="utf8")
+    cmd.add_argument("--title")
+    cmd.add_argument("--out", type=Path, required=True)
+    cmd = commands.add_parser("chapter", help="Run audit -> import -> structure check -> review document for one chapter")
+    cmd.add_argument("--name", required=True, help="Logical script name, e.g. 01ルリエロルート05")
+    cmd.add_argument("--workdir", type=Path, required=True)
+    cmd.add_argument("--tool", type=Path, required=True)
+    cmd.add_argument("--encoding", choices=("cp932", "utf8"), default="cp932")
+    cmd.add_argument("--target-encoding", choices=("cp932", "utf8"), default="utf8")
+    cmd.add_argument("--review-title")
+    cmd.add_argument("--dry-run", action="store_true", help="Run only the audit gate")
+    cmd = commands.add_parser("deploy-chapter", help="Rebuild a test ARC with one chapter: manifest, diff, backup, optional restart")
+    cmd.add_argument("--arc", type=Path, required=True)
+    cmd.add_argument("--entry", required=True, help="ARC entry name, e.g. 01ルリエロルート05.mjo")
+    cmd.add_argument("--zh", type=Path, required=True)
+    cmd.add_argument("--manifest", type=Path, required=True)
+    cmd.add_argument("--backup", type=Path, required=True)
+    cmd.add_argument("--expect-entries", type=int)
+    cmd.add_argument("--exe", type=Path, help="Absolute game executable for an optional restart")
+    cmd.add_argument("--restart", action="store_true")
+    cmd.add_argument("--dry-run", action="store_true")
     cmd = commands.add_parser("verify-mjo", help="Check bytecode structure or compare a no-content-change round trip")
     cmd.add_argument("script", type=Path)
     cmd.add_argument("--against", type=Path)
@@ -137,12 +174,58 @@ def run(args):
             print(json.dumps(report))
     elif args.command == "audit-translation":
         from .audit_translation import audit_translation
+        terms = None
+        if args.term_ledger:
+            from .terms import load_ledger
+            terms = load_ledger(args.term_ledger)
         result = audit_translation(args.script.read_bytes(), load_json(args.exchange),
                                    args.script_name, args.encoding,
-                                   load_json(args.nondisplay) if args.nondisplay else None)
+                                   load_json(args.nondisplay) if args.nondisplay else None,
+                                   terms, args.term_strict)
         new_json(args.out, result)
-        print(json.dumps({key: result[key] for key in ("records", "ldstr", "ruby_pairs", "choice_groups", "fail", "warn", "pass")}))
+        print(json.dumps({key: result[key] for key in ("records", "ldstr", "ruby_pairs", "choice_groups", "terms", "fail", "warn", "pass")}))
         return 0 if result["pass"] else 2
+    elif args.command == "term-check":
+        from .corpus import rows_from, exchange_files, write_tsv
+        from .terms import check, load_ledger, render_report
+        rows, _ = rows_from(exchange_files(args.exchange_dir))
+        report = check(rows, load_ledger(args.ledger))
+        new_json(args.out, report)
+        if args.md:
+            args.md.write_text(render_report(report), encoding="utf-8")
+        print(json.dumps(report["summary"]))
+        return 0 if not report["summary"]["fails"] else 3
+    elif args.command == "corpus":
+        from .corpus import write_all
+        result = write_all(args.directory, args.ledger)
+        print(json.dumps(result["report"]["summary"] | {"chapters": len(result["stats"]),
+                                                        "records": len(result["rows"])}))
+        return 0 if not result["report"]["summary"]["fails"] else 3
+    elif args.command == "review":
+        from .review import build_review, ldstr_offsets_of
+        document = load_json(args.exchange)
+        text = build_review(args.pristine.read_bytes(), args.translated.read_bytes(),
+                            args.script_name, args.encoding, args.target_encoding,
+                            ldstr_offsets_of(document),
+                            args.title or f"{args.script_name} 全文审校稿")
+        if args.out.exists():
+            raise ValidationError("Review output must not exist")
+        args.out.write_text(text, encoding="utf-8")
+        print(json.dumps({"records": len(document["records"]), "out": str(args.out)}))
+    elif args.command == "chapter":
+        from .pipeline import run_chapter
+        print(json.dumps(run_chapter(args.name, args.workdir, args.tool, args.encoding,
+                                     args.target_encoding, args.review_title, args.dry_run),
+                         ensure_ascii=False))
+    elif args.command == "deploy-chapter":
+        from .deploy import deploy_chapter, restart_game
+        result = deploy_chapter(args.arc, args.entry, args.zh, args.manifest, args.backup,
+                                args.expect_entries, args.dry_run)
+        if args.restart and not args.dry_run:
+            if not args.exe:
+                raise ValidationError("--restart requires --exe")
+            result["game"] = restart_game(args.exe)
+        print(json.dumps(result, ensure_ascii=False))
     elif args.command == "verify-mjo":
         data = args.script.read_bytes()
         if args.against:
