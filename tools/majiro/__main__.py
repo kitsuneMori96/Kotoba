@@ -66,6 +66,12 @@ def parser():
     cmd.add_argument("--ledger", type=Path, required=True)
     cmd.add_argument("--out", type=Path, required=True, help="New local JSON report path")
     cmd.add_argument("--md", type=Path, help="Optional new Markdown adjudication table")
+    cmd = commands.add_parser("dupcheck", help="Report how much of a fresh exchange is already translated elsewhere")
+    cmd.add_argument("exchange", type=Path)
+    cmd.add_argument("--directory", type=Path, required=True)
+    cmd.add_argument("--out", type=Path, help="New local JSON report path")
+    cmd.add_argument("--apply-reuse", action="store_true",
+                     help="Write contiguous reuse commit files instead of only reporting")
     cmd = commands.add_parser("corpus", help="Regenerate the corpus TSV, term table, index and conflict report")
     cmd.add_argument("--directory", type=Path, required=True)
     cmd.add_argument("--ledger", type=Path)
@@ -195,6 +201,10 @@ def run(args):
             args.md.write_text(render_report(report), encoding="utf-8")
         print(json.dumps(report["summary"]))
         return 0 if not report["summary"]["fails"] else 3
+    elif args.command == "dupcheck":
+        from .dupcheck import apply_reuse, run
+        report = apply_reuse(args.exchange, args.directory) if args.apply_reuse else run(args.exchange, args.directory, args.out)
+        print(json.dumps(report, ensure_ascii=False))
     elif args.command == "corpus":
         from .corpus import write_all
         result = write_all(args.directory, args.ledger)
