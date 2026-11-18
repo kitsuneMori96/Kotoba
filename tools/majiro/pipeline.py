@@ -15,11 +15,14 @@ from .toolchain import Toolchain
 
 
 def file_key(name):
-    """01ルリエロルート05 -> ero05; 01ルリ明るいルート05 -> route05; 00プロローグ05 -> prologue05."""
+    """01ルリエロルート05 -> ero05; 01ルリ明るいルート05 -> route05; 00プロローグ05 -> prologue05;
+    01ルリ死別ルート05 -> shibetsu05."""
     if "エロルート" in name:
         return "ero" + name[-2:]
     if "明るいルート" in name:
         return "route" + name[-2:]
+    if "死別ルート" in name:
+        return "shibetsu" + name[-2:]
     if "プロローグ" in name:
         return "prologue" + name[-2:]
     return name
