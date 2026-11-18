@@ -34,6 +34,21 @@ class ReviewTests(unittest.TestCase):
         document = {"records": [{"offset": 1, "kind": "text"}, {"offset": 9, "kind": "ldstr"}]}
         self.assertEqual(ldstr_offsets_of(document), [9])
 
+    def test_ldstr_offset_shift_after_import_is_mapped(self):
+        """Translated strings change length, so shipped ldstr offsets differ from source ones."""
+        from tools.majiro.mjo import Script
+        pristine = make_mjo(string_instruction("Alpha") + string_instruction("Choice", opcode=0x801)
+                            + instruction(0x82B))
+        shipped = make_mjo(string_instruction("阿尔法阿尔法") + string_instruction("选项", opcode=0x801)
+                           + instruction(0x82B))
+        source_ldstr = [item.offset for item in Script(pristine).instructions if item.opcode == 0x801]
+        shipped_ldstr = [item.offset for item in Script(shipped).instructions if item.opcode == 0x801]
+        self.assertNotEqual(source_ldstr, shipped_ldstr)
+        text = build_review(pristine, shipped, "test", "utf8", "utf8", source_ldstr, "标题")
+        self.assertIn("日: Choice", text)
+        self.assertIn("中: 选项", text)
+        self.assertEqual(text.count("] ldstr @"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
