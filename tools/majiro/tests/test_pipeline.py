@@ -22,6 +22,14 @@ class FileKeyTests(unittest.TestCase):
         self.assertNotEqual(file_key("01ルリ明るいルート00_02"), file_key("01ルリ明るいルート02"))
         self.assertNotEqual(review_label("01ルリ明るいルート00_02"), review_label("01ルリ明るいルート02"))
 
+    def test_heroine_route_mapping(self):
+        self.assertEqual(file_key("02佑咲ルート00"), "yusaki00")
+        self.assertEqual(file_key("02佑咲ルート09"), "yusaki09")
+        self.assertEqual(review_label("02佑咲ルート00"), "佑咲路线00")
+        self.assertEqual(file_key("03いいちこルート01"), "iichiko01")
+        self.assertEqual(review_label("03いいちこルート09"), "依知子路线09")
+        self.assertNotEqual(file_key("02佑咲ルート00"), file_key("03いいちこルート01"))
+
 
 if __name__ == "__main__":
     unittest.main()

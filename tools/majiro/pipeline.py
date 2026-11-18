@@ -25,6 +25,10 @@ def file_key(name):
         return "route" + name[-2:]
     if "死別ルート" in name:
         return "shibetsu" + name[-2:]
+    if "佑咲ルート" in name:
+        return "yusaki" + name[-2:]
+    if "いいちこルート" in name:
+        return "iichiko" + name[-2:]
     if "プロローグ" in name:
         return "prologue" + name[-2:]
     return name
@@ -35,6 +39,10 @@ def review_label(name):
         return "明亮路线00_" + name[-2:]
     if "明るいルート" in name:
         return "明亮路线" + name[-2:]
+    if "佑咲ルート" in name:
+        return "佑咲路线" + name[-2:]
+    if "いいちこルート" in name:
+        return "依知子路线" + name[-2:]
     if "プロローグ" in name:
         return "共通线序幕" + name[-2:]
     return file_key(name)
