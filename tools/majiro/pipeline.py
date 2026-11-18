@@ -19,6 +19,8 @@ def file_key(name):
     01ルリ死別ルート05 -> shibetsu05."""
     if "エロルート" in name:
         return "ero" + name[-2:]
+    if "明るいルート00_" in name:
+        return "akarui00" + name[-2:]
     if "明るいルート" in name:
         return "route" + name[-2:]
     if "死別ルート" in name:
@@ -29,6 +31,8 @@ def file_key(name):
 
 
 def review_label(name):
+    if "明るいルート00_" in name:
+        return "明亮路线00_" + name[-2:]
     if "明るいルート" in name:
         return "明亮路线" + name[-2:]
     if "プロローグ" in name:
