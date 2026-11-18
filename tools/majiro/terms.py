@@ -71,7 +71,18 @@ def ledger_violations(rows, terms, minimum_length=2):
 
 
 def conflicts(rows, terms=None):
-    """Same source string rendered with more than one translation."""
+    """Same source string rendered with more than one translation.
+
+    Each item carries a ``policy``:
+
+    * ``unify``  — reviewed ledger terms and ＠ nameplates. Identity matters,
+      so one rendering must win.
+    * ``review`` — other ldstr strings (choice options, one-off labels). They
+      may be fragments that legitimately read differently per scene, so a
+      human takes a look instead of the tool forcing a wording.
+    * ``context`` — ordinary dialogue. Interjections and greetings are expected
+      to shift with tone; variants are reference only and never flattened.
+    """
     table = {}
     for row in rows:
         source = (row["source"] or "").strip()
@@ -79,13 +90,20 @@ def conflicts(rows, terms=None):
         if not source or not destination:
             continue
         table.setdefault(source, {}).setdefault(destination, []).append(
-            {"script": row["script"], "offset": row["offset"]})
+            {"script": row["script"], "offset": row["offset"], "kind": row.get("kind", "")})
     result = []
     for source, variants in table.items():
         if len(variants) < 2:
             continue
-        ledger = (terms or {}).get(source)
+        ledger = (terms or {}).get(_base_name(source)) or (terms or {}).get(source)
         counts = {dst: len(places) for dst, places in variants.items()}
+        kinds = {place.get("kind") for places in variants.values() for place in places}
+        if ledger is not None or "＠" in source:
+            policy = "unify"
+        elif "ldstr" in kinds:
+            policy = "review"
+        else:
+            policy = "context"
         result.append({
             "source": source,
             "variants": [{"translation": dst, "count": counts[dst], "places": variants[dst]}
@@ -93,6 +111,7 @@ def conflicts(rows, terms=None):
             "recommended": ledger["dst"] if ledger else None,
             "category": ledger["category"] if ledger else "",
             "records": sum(counts.values()),
+            "policy": policy,
         })
     result.sort(key=lambda item: (-item["records"], item["source"]))
     return result
@@ -125,6 +144,8 @@ def reverse_conflicts(rows, terms=None, maximum_length=8):
 def check(rows, terms=None):
     violations = ledger_violations(rows, terms or {}) if terms else []
     same_source = conflicts(rows, terms)
+    buckets = {policy: [item for item in same_source if item["policy"] == policy]
+               for policy in ("unify", "review", "context")}
     return {
         "schema": 1,
         "records": len(rows),
@@ -134,6 +155,9 @@ def check(rows, terms=None):
         "violations": violations,
         "summary": {
             "conflicts": len(same_source),
+            "unify": len(buckets["unify"]),
+            "review": len(buckets["review"]),
+            "context": len(buckets["context"]),
             "reverse": len(reverse_conflicts(rows, terms)),
             "violations": len(violations),
             "fails": sum(1 for item in violations if item["severity"] == "fail"),
@@ -142,21 +166,38 @@ def check(rows, terms=None):
 
 
 def render_report(report):
-    """Markdown table for human adjudication."""
+    """Markdown table for human review.
+
+    Only ledger terms are "must unify". Choices and plain dialogue are listed
+    so a reviewer can glance at them, but they are never forced into one
+    wording just to make the table empty.
+    """
+    summary = report["summary"]
+    buckets = {}
+    for item in report["conflicts"]:
+        buckets.setdefault(item["policy"], []).append(item)
+    unify = buckets.get("unify", [])
+    review = buckets.get("review", [])
+    context = buckets.get("context", [])
     lines = ["# 译名一致性报告", "",
              f"扫描 {report['records']} 条已译记录、{report['sources']} 个唯一源文。",
-             f"同源异译 {report['summary']['conflicts']} 处；"
-             f"短词多源 {report['summary']['reverse']} 处；"
-             f"台账冲突 {report['summary']['violations']} 条（其中 confirmed 级 {report['summary']['fails']} 条）。",
-             "",
-             "> 语气词、寒暄一类短句允许随语境微调，这里只作提醒；"
-             "名牌、术语、选项请优先沿用「建议」列。", "",
-             "## 一、同一句日文出现多种译法", "",
+             f"**须统一 {summary['unify']} 处**（台账术语/＠名牌）；"
+             f"建议扫一眼 {summary['review']} 处（选项/标签）；"
+             f"随语境微调 {summary['context']} 处（不强制）；"
+             f"短词多源 {summary['reverse']} 处；"
+             f"台账冲突 {summary['violations']} 条（其中 confirmed 级 {summary['fails']} 条）。", "",
+             "> 判定口径：**只有已入台账的术语和 ＠ 名牌要求同一源文只留一种译法**。"
+             "选项（ldstr）里常见的「かわいい→可爱 / 却很可爱」是句子片段，按上下文取舍；"
+             "普通台词的语气词、寒暄更应随语境变化（「好好好，知道了啦」/「好好好，知道了」并存是正常的）。"
+             "后两类只作提醒，不需要为了报表好看去统一。", "",
+             "## 一、须统一（台账术语 / ＠ 名牌）", "",
              "| 日文源 | 译法（次数） | 台账 | 建议 |", "| --- | --- | --- | --- |"]
-    for item in report["conflicts"]:
+    for item in unify:
         variants = " ／ ".join(f"{v['translation']}（{v['count']}）" for v in item["variants"])
         recommend = item["recommended"] or f"{item['variants'][0]['translation']}（沿用最多者）"
         lines.append(f"| {item['source']} | {variants} | {item['category'] or '—'} | {recommend} |")
+    if not unify:
+        lines.append("| — | 无 | — | — |")
     lines += ["", "## 二、同一中文短词对应多个日文源", "",
               "| 中文 | 日文源（次数） |", "| --- | --- |"]
     for item in report["reverse"]:
@@ -170,4 +211,20 @@ def render_report(report):
                      f"| {translation} | {item['severity']} |")
     if len(report["violations"]) > 500:
         lines.append(f"| … | 另有 {len(report['violations']) - 500} 条见 JSON | | | | |")
+    lines += ["", "## 四、选项/标签同源异译（建议扫一眼，可因上下文不同）", ""]
+    if not review:
+        lines.append("无。")
+    else:
+        lines += ["| 日文源 | 并存译法（次数） |", "| --- | --- |"]
+        for item in review:
+            variants = " ／ ".join(f"{v['translation']}（{v['count']}）" for v in item["variants"])
+            lines.append(f"| {item['source']} | {variants} |")
+    lines += ["", "## 五、随语境微调（仅备查，不要求统一）", ""]
+    if not context:
+        lines.append("无。")
+    else:
+        lines += ["| 日文源 | 并存译法（次数） |", "| --- | --- |"]
+        for item in context:
+            variants = " ／ ".join(f"{v['translation']}（{v['count']}）" for v in item["variants"])
+            lines.append(f"| {item['source']} | {variants} |")
     return "\n".join(lines) + "\n"

@@ -66,6 +66,29 @@ class LedgerTests(unittest.TestCase):
         self.assertIn("相同（1）", text)
         self.assertIn("建议", text)
 
+    def test_only_fixed_identities_require_unification(self):
+        """Ledger terms and ＠ nameplates unify; choices get a look; dialogue drifts."""
+        terms = self.write({"ルリ": {"dst": "琉璃", "status": "confirmed"}})
+        rows = [row("a", 1, "ルリ", "琉璃", kind="ldstr"), row("b", 2, "ルリ", "露莉", kind="ldstr"),
+                row("a", 3, "かわいい", "可爱", kind="ldstr"), row("b", 4, "かわいい", "却很可爱", kind="ldstr"),
+                row("a", 5, "はいはい", "好好好"), row("b", 6, "はいはい", "好好好，知道了啦")]
+        found = {item["source"]: item["policy"] for item in conflicts(rows, terms)}
+        self.assertEqual(found["ルリ"], "unify")
+        self.assertEqual(found["かわいい"], "review")
+        self.assertEqual(found["はいはい"], "context")
+
+    def test_nameplate_marker_forces_unification(self):
+        rows = [row("a", 1, "ルリ＠収録済み", "琉璃"), row("b", 2, "ルリ＠収録済み", "露莉")]
+        self.assertEqual(conflicts(rows)[0]["policy"], "unify")
+
+    def test_contextual_variants_are_reported_apart_and_not_blocking(self):
+        report = check([row("a", 1, "はいはい", "好好好"), row("b", 2, "はいはい", "好好好，知道了啦")])
+        text = render_report(report)
+        self.assertEqual(report["summary"]["unify"], 0)
+        self.assertEqual(report["summary"]["context"], 1)
+        self.assertIn("随语境微调", text)
+        self.assertIn("不要求统一", text)
+
 
 if __name__ == "__main__":
     unittest.main()
