@@ -27,10 +27,21 @@ const (
 )
 
 type fileEntry struct {
-	Path         string `json:"path"`
-	SHA256       string `json:"sha256"`
-	BeforeSHA256 string `json:"before_sha256,omitempty"`
-	Size         int64  `json:"size"`
+	Path          string   `json:"path"`
+	SHA256        string   `json:"sha256"`
+	BeforeSHA256  string   `json:"before_sha256,omitempty"`
+	LegacySHA256  []string `json:"legacy_sha256,omitempty"`
+	RestoreSHA256 string   `json:"restore_sha256,omitempty"`
+	Size          int64    `json:"size"`
+}
+
+func (e fileEntry) isLegacy(sum string) bool {
+	for _, s := range e.LegacySHA256 {
+		if strings.EqualFold(s, sum) {
+			return true
+		}
+	}
+	return false
 }
 
 type manifest struct {
@@ -268,6 +279,7 @@ func main() {
 	dryRun := flag.Bool("check", false, "只检查，不写入")
 	rollback := flag.Bool("rollback", false, "撤销已安装的补丁")
 	yes := flag.Bool("yes", false, "跳过确认")
+	force := flag.Bool("force", false, "允许覆盖无法识别的文件（覆盖前仍会备份）")
 	dirFlag := flag.String("dir", "", "游戏目录（默认安装器所在目录）")
 	flag.Parse()
 
@@ -325,9 +337,12 @@ func main() {
 	}
 
 	type plan struct {
-		entry   fileEntry
-		zipFile *zip.File
-		dst     string
+		entry    fileEntry
+		zipFile  *zip.File
+		dst      string
+		curSHA   string
+		existed  bool
+		pristine bool
 	}
 	var plans []plan
 	var total int64
@@ -347,18 +362,26 @@ func main() {
 			fail("载荷缺少文件: %s", e.Path)
 		}
 		cur, statErr := sha256File(dst)
+		p := plan{entry: e, zipFile: zf, dst: dst}
 		switch {
 		case statErr == nil:
-			if strings.EqualFold(cur, e.SHA256) {
+			p.existed = true
+			p.curSHA = cur
+			switch {
+			case strings.EqualFold(cur, e.SHA256):
 				// already this version
-			} else if e.BeforeSHA256 != "" && strings.EqualFold(cur, e.BeforeSHA256) {
-				// pristine, will be replaced
-			} else if installed && matchesOld(oldState, e.Path, cur) {
+			case e.BeforeSHA256 != "" && strings.EqualFold(cur, e.BeforeSHA256):
+				p.pristine = true
+			case installed && matchesOld(oldState, e.Path, cur):
 				// previous version of this patch, will be upgraded
-			} else if installed {
-				fail("文件 %s 与预期不符（既非原版也非本补丁），已中止。", e.Path)
-			} else {
-				fail("文件 %s 已被修改（摘要 %s）。为安全起见不做覆盖。", e.Path, cur)
+			case e.isLegacy(cur):
+				fmt.Printf("提示: %s 来自旧版汉化补丁，将替换它（原文件先备份）。\n", e.Path)
+			case *force:
+				fmt.Printf("警告: %s 无法识别（摘要 %s），按 --force 覆盖（原文件先备份）。\n", e.Path, cur)
+			case installed:
+				fail("文件 %s 与预期不符（既非原版也非本补丁），已中止。\n若确认覆盖旧汉化残留，可加 --force 重新运行。", e.Path)
+			default:
+				fail("文件 %s 已被修改（摘要 %s），不是官方原版。\n若这是旧版汉化补丁留下的文件，请先还原官方原版，或加 --force 覆盖（覆盖前会自动备份）。", e.Path, cur)
 			}
 		case os.IsNotExist(statErr):
 			if e.BeforeSHA256 != "" {
@@ -368,7 +391,7 @@ func main() {
 			fail("无法读取 %s: %v", e.Path, statErr)
 		}
 		total += e.Size
-		plans = append(plans, plan{e, zf, dst})
+		plans = append(plans, p)
 	}
 	systemDLL := systemWinMM()
 	origDLL := filepath.Join(target, "winmm_orig.dll")
@@ -397,10 +420,27 @@ func main() {
 		}
 	}
 
+	stateFiles := append([]fileEntry(nil), man.Files...)
+	for i := range stateFiles {
+		if installed {
+			for _, old := range oldState.Files {
+				if old.Path == stateFiles[i].Path {
+					stateFiles[i].RestoreSHA256 = old.RestoreSHA256
+					break
+				}
+			}
+			continue
+		}
+		for _, p := range plans {
+			if p.entry.Path == stateFiles[i].Path && p.existed && !p.pristine {
+				stateFiles[i].RestoreSHA256 = p.curSHA
+			}
+		}
+	}
 	state := installState{
 		Version:       man.Version,
 		Time:          time.Now().Format(time.RFC3339),
-		Files:         man.Files,
+		Files:         stateFiles,
 		GameExeSHA256: man.GameExeSHA256,
 	}
 
@@ -412,7 +452,8 @@ func main() {
 		if err := os.Mkdir(backupDir, 0755); err != nil {
 			fail("创建备份目录失败: %v", err)
 		}
-		for _, p := range plans {
+		for i := range plans {
+			p := &plans[i]
 			if _, err := os.Stat(p.dst); err == nil {
 				bak, err := safeJoin(backupDir, p.entry.Path)
 				if err != nil {
@@ -421,9 +462,15 @@ func main() {
 				if err := copyFile(p.dst, bak); err != nil {
 					fail("备份 %s 失败: %v", p.entry.Path, err)
 				}
-				if err := verifyHash(bak, p.entry.BeforeSHA256); err != nil && p.entry.BeforeSHA256 != "" {
+				got, err := sha256File(bak)
+				if err != nil {
 					fail("备份 %s 校验失败: %v", p.entry.Path, err)
 				}
+				if p.curSHA != "" && !strings.EqualFold(got, p.curSHA) {
+					fail("备份 %s 校验失败: 文件在安装过程中被改动", p.entry.Path)
+				}
+				p.curSHA = got
+				p.existed = true
 			} else {
 				state.Created = append(state.Created, p.entry.Path)
 			}
@@ -577,7 +624,11 @@ func doRollback(target string) {
 		if err := copyFile(bak, cur); err != nil {
 			fail("恢复 %s 失败: %v", f.Path, err)
 		}
-		if err := verifyHash(cur, f.BeforeSHA256); err != nil {
+		want := f.RestoreSHA256
+		if want == "" {
+			want = f.BeforeSHA256
+		}
+		if err := verifyHash(cur, want); err != nil {
 			fail("恢复 %s 后校验失败: %v", f.Path, err)
 		}
 		fmt.Printf("  恢复 %s\n", f.Path)

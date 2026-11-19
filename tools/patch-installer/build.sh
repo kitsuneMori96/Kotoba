@@ -39,12 +39,23 @@ wsl.exe -e bash -lc "python3 '$(wslpath_u "$here/make_icon.py")' '$(wslpath_u "$
 go build -trimpath -ldflags "-s -w" -o "$outdir/stub.exe" ./stub
 go build -trimpath -ldflags "-s -w" -o "$outdir/pack.exe" ./pack
 
+# RURI_LEGACY: newline-separated name=path pairs of known legacy patch files.
+# RURI_NOTE: manifest note, defaults to a private build label.
+legacy_args=()
+if [ -n "${RURI_LEGACY:-}" ]; then
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    legacy_args+=(-legacy "$line")
+  done <<<"$RURI_LEGACY"
+fi
+
 "$outdir/pack.exe" \
   -stub "$outdir/stub.exe" \
-  -source "$root/work/ruri-test" \
+  -source "${RURI_SOURCE:-$root/work/ruri-test}" \
   -pristine "$pristine" \
   -out "$outdir/RuriPatch-$version.exe" \
   -version "$version" \
-  -note "local private build"
+  "${legacy_args[@]}" \
+  -note "${RURI_NOTE:-local private build}"
 
 ls -la "$outdir/RuriPatch-$version.exe"

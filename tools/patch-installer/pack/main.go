@@ -12,15 +12,36 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const magic = "RURI-PATCH1"
 
 type fileEntry struct {
-	Path         string `json:"path"`
-	SHA256       string `json:"sha256"`
-	BeforeSHA256 string `json:"before_sha256,omitempty"`
-	Size         int64  `json:"size"`
+	Path         string   `json:"path"`
+	SHA256       string   `json:"sha256"`
+	BeforeSHA256 string   `json:"before_sha256,omitempty"`
+	LegacySHA256 []string `json:"legacy_sha256,omitempty"`
+	Size         int64    `json:"size"`
+}
+
+// legacyFlag collects name=path pairs of files from older third-party patches
+// that the installer is allowed to replace (the original is still backed up).
+type legacyFlag map[string][]string
+
+func (l legacyFlag) String() string { return "" }
+
+func (l legacyFlag) Set(v string) error {
+	name, path, ok := strings.Cut(v, "=")
+	if !ok || name == "" || path == "" {
+		return fmt.Errorf("want name=path, got %q", v)
+	}
+	sum, _, err := sha256File(path)
+	if err != nil {
+		return err
+	}
+	l[name] = append(l[name], sum)
+	return nil
 }
 
 type manifest struct {
@@ -58,6 +79,8 @@ func main() {
 	version := flag.String("version", "1.0.0", "patch version shown by the installer")
 	exeName := flag.String("exe-name", "ルリのかさね.exe", "game executable name")
 	note := flag.String("note", "", "free-form note embedded in the manifest")
+	legacy := legacyFlag{}
+	flag.Var(legacy, "legacy", "name=path of a known legacy patch file that may be replaced (repeatable)")
 	flag.Parse()
 	if *stub == "" || *source == "" || *pristine == "" || *out == "" {
 		die("-stub, -source, -pristine and -out are required")
@@ -87,6 +110,7 @@ func main() {
 		if before, _, err := sha256File(filepath.Join(*pristine, filepath.FromSlash(rel))); err == nil {
 			entry.BeforeSHA256 = before
 		}
+		entry.LegacySHA256 = legacy[filepath.ToSlash(rel)]
 		man.Files = append(man.Files, entry)
 	}
 
