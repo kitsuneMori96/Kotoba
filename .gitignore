@@ -18,6 +18,7 @@ Thumbs.db
 work/
 export/
 engine/majiro-win32/build/
+engine/majiro-win32/build-probe/
 tools/majiro/build/
 __pycache__/
 *.pyc
