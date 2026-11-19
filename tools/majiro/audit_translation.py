@@ -36,8 +36,10 @@ def _groups(script, texts):
     return ruby, choices
 
 
-def audit_translation(data, document, script_name, encoding, nondisplay=None, terms=None, strict_terms=False):
+def audit_translation(data, document, script_name, encoding, nondisplay=None, terms=None, strict_terms=False,
+                      kana_allowlist=None):
     nondisplay = {int(key): value for key, value in (nondisplay or {}).items()}
+    kana_allowlist = {int(key): value for key, value in (kana_allowlist or {}).items()}
     script_name = script_name or document.get("script")
     script = Script(data)
     texts = _texts(script, encoding)
@@ -66,7 +68,15 @@ def audit_translation(data, document, script_name, encoding, nondisplay=None, te
             flag("coverage", offset, "untranslated record")
             continue
         if KANA.search(dst):
-            flag("format", offset, f"kana left in translation: {dst!r}")
+            if offset in kana_allowlist:
+                kept = KANA.findall(dst)
+                if not all(run in record["source"] for run in kept):
+                    flag("kana-allowlist", offset,
+                         f"allowlisted kana is not present in source: {dst!r} ({kana_allowlist[offset]})")
+                elif record["kind"] == "text" and dst == record["source"]:
+                    flag("coverage", offset, "allowlisted line is entirely untranslated")
+            else:
+                flag("format", offset, f"kana left in translation: {dst!r}")
         for token in FORBIDDEN:
             if token in dst:
                 flag("format", offset, f"preview marker {token!r} in translation")
@@ -96,7 +106,7 @@ def audit_translation(data, document, script_name, encoding, nondisplay=None, te
             flag("ruby", read, "ruby pair outside allowlist")
             continue
         rd, wd = by_offset[read]["translation"], by_offset[word]["translation"]
-        if rd is None or not RUBY_READ.match(rd):
+        if rd is None or (not RUBY_READ.match(rd) and read not in kana_allowlist):
             flag("ruby", read, f"ruby reading must be pinyin/latin: {rd!r}")
         if wd is None or not CJK.search(wd):
             flag("ruby", word, f"ruby word must be CJK: {wd!r}")
@@ -140,5 +150,6 @@ def audit_translation(data, document, script_name, encoding, nondisplay=None, te
             "text": sum(1 for r in document["records"] if r["kind"] == "text"),
             "ldstr": len(allowed), "ruby_pairs": len(ruby), "choice_groups": len(choices),
             "terms": sum(1 for f in flags if f["check"] == "term"),
+            "kana_allowlist": len(kana_allowlist),
             "flags": flags, "fail": len(fails),
             "warn": len(flags) - len(fails), "pass": not fails}

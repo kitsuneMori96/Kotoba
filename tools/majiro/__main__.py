@@ -58,6 +58,7 @@ def parser():
     cmd.add_argument("--script-name", help="Stable logical script name; defaults to the exchange script name")
     cmd.add_argument("--exchange", type=Path, required=True)
     cmd.add_argument("--nondisplay", type=Path, help="JSON {ldstr offset: reason} for reviewed non-display strings")
+    cmd.add_argument("--kana-allowlist", type=Path, help="JSON {offset: reason} for text records that intentionally keep kana (proper nouns, ruby readings)")
     cmd.add_argument("--term-ledger", type=Path, help="agent_term_ledger.json; flags records that break a reviewed term")
     cmd.add_argument("--term-strict", action="store_true", help="Treat confirmed-term deviations as blocking, not warnings")
     cmd.add_argument("--out", type=Path, required=True, help="New local JSON report path")
@@ -187,7 +188,8 @@ def run(args):
         result = audit_translation(args.script.read_bytes(), load_json(args.exchange),
                                    args.script_name, args.encoding,
                                    load_json(args.nondisplay) if args.nondisplay else None,
-                                   terms, args.term_strict)
+                                   terms, args.term_strict,
+                                   load_json(args.kana_allowlist) if args.kana_allowlist else None)
         new_json(args.out, result)
         print(json.dumps({key: result[key] for key in ("records", "ldstr", "ruby_pairs", "choice_groups", "terms", "fail", "warn", "pass")}))
         return 0 if result["pass"] else 2

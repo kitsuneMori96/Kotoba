@@ -41,7 +41,12 @@ def sha256(data):
 
 def file_sha256(path):
     with Path(path).open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+        if hasattr(hashlib, "file_digest"):
+            return hashlib.file_digest(stream, "sha256").hexdigest()
+        digest = hashlib.sha256()
+        for chunk in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(chunk)
+        return digest.hexdigest()
 
 
 def regular_file(path):

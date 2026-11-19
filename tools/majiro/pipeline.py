@@ -72,6 +72,7 @@ def paths(name, workdir):
         "pristine": workdir / "src" / f"{name}.pristine.mjo",
         "exchange": exchange,
         "nondisplay": workdir / "agent" / f"nondisplay-{key}.json",
+        "kana_allowlist": workdir / "agent" / f"kana-allowlist-{key}.json",
         "output": workdir / f"{name}.zh.mjo",
         "audit": workdir / "agent" / f"{key}.audit.json",
         "import_report": workdir / "agent" / f"import-{key}-report.json",
@@ -91,7 +92,9 @@ def run_chapter(name, workdir, tool, source_encoding="cp932", target_encoding="u
     pristine = where["pristine"].read_bytes()
 
     gate = audit_translation(pristine, document, name, source_encoding,
-                             load_json(where["nondisplay"]) if where["nondisplay"].exists() else None)
+                             load_json(where["nondisplay"]) if where["nondisplay"].exists() else None,
+                             kana_allowlist=(load_json(where["kana_allowlist"])
+                                             if where["kana_allowlist"].exists() else None))
     if dry_run:
         return {"script": name, "dry_run": True, "audit": {"fail": gate["fail"], "warn": gate["warn"]},
                 "exchange": str(where["exchange"])}
