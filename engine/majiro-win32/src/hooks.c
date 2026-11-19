@@ -460,6 +460,64 @@ static unsigned long long __cdecl k_name_hash(const char *s) {
   return h;
 }
 
+/* Optional bulk probe: ruri_names.txt next to the exe lists UTF-8 resource
+   names; each goes through the loader's uppercase step and the resolver. */
+#ifdef PROBE_ALWAYS
+static void selftest_names(void) {
+  typedef int(__cdecl * exists_t)(const char *);
+  char exe[MAX_PATH];
+  static char data[1 << 20];
+  char name[512];
+  char *p, *end;
+  HANDLE h;
+  DWORD size, got = 0, n;
+  int total = 0, missing = 0, logged = 0;
+  exists_t exists = (exists_t)(g_base + (0x47BE30 - IMAGE_BASE));
+
+  n = GetModuleFileNameA(NULL, exe, MAX_PATH);
+  if (n == 0 || n >= MAX_PATH - 16) return;
+  p = strrchr(exe, '\\');
+  if (!p) return;
+  strcpy(p + 1, "ruri_names.txt");
+  h = CreateFileA(exe, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+  if (h == INVALID_HANDLE_VALUE) return;
+  size = GetFileSize(h, NULL);
+  if (size == INVALID_FILE_SIZE || size == 0 || size >= sizeof(data)) {
+    CloseHandle(h);
+    return;
+  }
+  if (!ReadFile(h, data, size, &got, NULL)) got = 0;
+  CloseHandle(h);
+  if (got >= 3 && (unsigned char)data[0] == 0xEF && (unsigned char)data[1] == 0xBB &&
+      (unsigned char)data[2] == 0xBF) {
+    p = data + 3;
+  } else {
+    p = data;
+  }
+  end = data + got;
+  while (p < end) {
+    char *line = p, *e;
+    int len;
+    while (p < end && *p != '\n') p++;
+    e = p;
+    if (p < end) p++;
+    while (e > line && e[-1] == '\r') e--;
+    len = (int)(e - line);
+    if (len <= 0 || line[0] == '#' || len >= (int)sizeof(name)) continue;
+    memcpy(name, line, len);
+    name[len] = 0;
+    k_upper(name);
+    total++;
+    if (!exists(name)) {
+      missing++;
+      if (logged++ < 20) k_log("namesweep: MISS %s", name);
+    }
+  }
+  k_log("namesweep: total=%d missing=%d", total, missing);
+}
+#endif
+
 /* Exercise the loader's own name pipeline on a UTF-8 route name once the
    archives are mounted: uppercase (k_upper), then the engine resolver. */
 #ifdef PROBE_ALWAYS
@@ -488,6 +546,7 @@ void ruri_selftest(void) {
         found, found_old, k_name_hash(buf));
   k_log("selftest: in=%s", before);
   k_log("selftest: up=%s", after);
+  selftest_names();
 }
 #endif
 
