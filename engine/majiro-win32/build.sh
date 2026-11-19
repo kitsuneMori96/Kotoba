@@ -41,7 +41,7 @@ rm -f "$OUT/winmm_orig.dll"
 cp "$SYS_WINMM" "$OUT/winmm_orig.dll"
 chmod u+w "$OUT/winmm_orig.dll"
 
-"$CC" -shared -O2 -s -Wall -Wextra -Wno-cast-function-type \
+"$CC" -shared -O2 -s -Wall -Wextra -Wno-cast-function-type ${EXTRA_CFLAGS:-} \
   -o "$OUT/winmm.dll" \
   src/dllmain.c src/hooks.c src/utf8.c src/gdi.c src/fslog.c src/mci.c \
   "$OUT/winmm.def" \

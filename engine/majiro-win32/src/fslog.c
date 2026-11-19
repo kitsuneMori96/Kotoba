@@ -27,9 +27,9 @@ static cw_ex_w_t real_cw_ex_w;
 static cw_ex_a_t real_cw_ex_a;
 
 static int interesting(const char *p) {
-  const char *keys[] = {".arc", ".mjo", "scenario", "update", "savedata", "data2", ".cfg"};
+  const char *keys[] = {".mjo", "scenario", "update", "savedata", ".cfg"};
   int i;
-  for (i = 0; i < 7; i++) {
+  for (i = 0; i < 5; i++) {
     const char *k = keys[i];
     const char *s;
     for (s = p; *s; s++) {
@@ -43,6 +43,144 @@ static int interesting(const char *p) {
     }
   }
   return 0;
+}
+
+/* Track arc/script handles so the loader's seek+read sequence is visible in
+   the trace; this is how a failing script load gets located. */
+typedef struct {
+  HANDLE h;
+  char name[80];
+  unsigned long long pos;
+} tracked_t;
+static tracked_t g_tracked[64];
+static volatile LONG g_tracked_n;
+static volatile LONG g_log_budget;
+
+static int contains_ci(const char *s, const char *k) {
+  const char *a;
+  for (a = s; *a; a++) {
+    const char *x = a;
+    const char *y = k;
+    while (*x && *y && (*x == *y || (*x >= 'A' && *x <= 'Z' && *x - 'A' + 'a' == *y))) {
+      x++;
+      y++;
+    }
+    if (!*y) return 1;
+  }
+  return 0;
+}
+
+static int trackable(const char *p) {
+  return p && (contains_ci(p, ".mjo") || contains_ci(p, "update.arc") ||
+               contains_ci(p, "scenario.arc"));
+}
+
+static void track(HANDLE h, const char *name) {
+  LONG i;
+  tracked_t *t;
+  if (h == INVALID_HANDLE_VALUE || !h || !name) return;
+  i = InterlockedIncrement(&g_tracked_n) - 1;
+  if (i < 0 || i >= 64) {
+    InterlockedDecrement(&g_tracked_n);
+    return;
+  }
+  t = &g_tracked[i];
+  t->h = h;
+  t->pos = 0;
+  lstrcpynA(t->name, name, sizeof(t->name));
+}
+
+static tracked_t *find_tracked(HANDLE h) {
+  LONG n = g_tracked_n, i;
+  if (n > 64) n = 64;
+  for (i = n - 1; i >= 0; i--)
+    if (g_tracked[i].h == h) return &g_tracked[i];
+  return NULL;
+}
+
+static int log_budget(void) {
+  return InterlockedIncrement(&g_log_budget) <= 20000;
+}
+
+static BOOL (WINAPI *real_readfile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
+static DWORD (WINAPI *real_setfp)(HANDLE, LONG, PLONG, DWORD);
+static BOOL (WINAPI *real_setfpex)(HANDLE, LARGE_INTEGER, PLARGE_INTEGER, DWORD);
+static DWORD (WINAPI *real_getsize)(HANDLE, LPDWORD);
+static BOOL (WINAPI *real_getsizeex)(HANDLE, PLARGE_INTEGER);
+
+static BOOL WINAPI my_readfile(HANDLE h, LPVOID buf, DWORD n, LPDWORD got, LPOVERLAPPED ov) {
+  tracked_t *t = k_trace_enabled() ? find_tracked(h) : NULL;
+  DWORD saved = GetLastError(), g = 0, e;
+  BOOL ok;
+  SetLastError(saved);
+  ok = real_readfile(h, buf, n, got ? got : &g, ov);
+  e = GetLastError();
+  if (t && log_budget()) {
+    DWORD r = got ? *got : g;
+    unsigned long long at = t->pos;
+    k_log("read: %s req=%lu got=%lu ok=%d err=%lu at=%I64u", t->name, n, r, ok, e, at);
+    if (ok && r >= 32) {
+      const unsigned char *b = (const unsigned char *)buf;
+      if (!memcmp(b, "MajiroObj", 9)) {
+        DWORD entry, rm, fc;
+        memcpy(&entry, b + 16, 4);
+        memcpy(&rm, b + 20, 4);
+        memcpy(&fc, b + 24, 4);
+        k_log("hdr: at=%I64u magic=%.16s entry=%lu readmark=%lu fc=%lu",
+              at, (const char *)b, entry, rm, fc);
+      }
+    }
+    if (ok) t->pos += r;
+  }
+  SetLastError(e);
+  return ok;
+}
+
+static DWORD WINAPI my_setfp(HANDLE h, LONG lo, PLONG hi, DWORD method) {
+  tracked_t *t = k_trace_enabled() ? find_tracked(h) : NULL;
+  DWORD saved = GetLastError(), r, e;
+  LONG hi_v = 0;
+  SetLastError(0);
+  r = real_setfp(h, lo, hi ? hi : &hi_v, method);
+  e = GetLastError();
+  if (t && !(r == INVALID_SET_FILE_POINTER && e != NO_ERROR)) {
+    t->pos = ((unsigned long long)(unsigned long)(hi ? *hi : hi_v) << 32) |
+             (unsigned long long)(unsigned long)r;
+    if (log_budget())
+      k_log("seek: %s method=%lu lo=%ld hi=%ld -> %I64u", t->name, method, lo,
+            hi ? *hi : hi_v, t->pos);
+  }
+  SetLastError(saved);
+  return r;
+}
+
+static BOOL WINAPI my_setfpex(HANDLE h, LARGE_INTEGER dist, PLARGE_INTEGER np, DWORD method) {
+  tracked_t *t = k_trace_enabled() ? find_tracked(h) : NULL;
+  LARGE_INTEGER tmp;
+  PLARGE_INTEGER out = np ? np : &tmp;
+  BOOL ok = real_setfpex(h, dist, out, method);
+  if (t && ok) {
+    t->pos = (unsigned long long)out->QuadPart;
+    if (log_budget())
+      k_log("seekx: %s method=%lu dist=%I64d -> %I64u", t->name, method, dist.QuadPart, t->pos);
+  }
+  return ok;
+}
+
+static DWORD WINAPI my_getsize(HANDLE h, LPDWORD hi) {
+  DWORD saved = GetLastError(), r;
+  r = real_getsize(h, hi);
+  SetLastError(saved);
+  return r;
+}
+
+static BOOL WINAPI my_getsizeex(HANDLE h, PLARGE_INTEGER size) {
+  BOOL ok = real_getsizeex(h, size);
+  if (ok && k_trace_enabled()) {
+    tracked_t *t = find_tracked(h);
+    if (t && log_budget()) k_log("size: %s = %I64u", t->name, (unsigned long long)size->QuadPart);
+  }
+  return ok;
 }
 
 /* The engine hands us script names as raw UTF-8 bytes through the ANSI API.
@@ -80,6 +218,14 @@ static HANDLE WINAPI my_create_w(LPCWSTR path, DWORD access, DWORD share,
     else
       k_log("openW: %s -> ok", utf8);
   }
+  if (h != INVALID_HANDLE_VALUE && logit && trackable(utf8)) track(h, utf8);
+#ifdef PROBE_ALWAYS
+  if (h != INVALID_HANDLE_VALUE && utf8[0]) {
+    const char *dot = strrchr(utf8, '.');
+    if (dot && (!_stricmp(dot, ".rct") || !_stricmp(dot, ".mjo") || !_stricmp(dot, ".ogg")))
+      ruri_selftest();
+  }
+#endif
   SetLastError(saved);
   return h;
 }
@@ -89,13 +235,26 @@ static HANDLE WINAPI my_create_a(LPCSTR path, DWORD access, DWORD share,
                                  HANDLE tmpl) {
   WCHAR wide[MAX_PATH * 2];
   DWORD saved = GetLastError();
-  int resolved;
+  int resolved, logit = 0;
+  HANDLE h;
   if (!path) return real_create_a(path, access, share, sa, disp, flags, tmpl);
-  if (k_trace_enabled() && interesting(path)) k_log("openA: %s", path);
+  if (k_trace_enabled() && interesting(path)) logit = 1;
   resolved = disp == OPEN_EXISTING && resolve(path, wide);
   SetLastError(saved);
-  if (resolved) return real_create_w(wide, access, share, sa, disp, flags, tmpl);
-  return real_create_a(path, access, share, sa, disp, flags, tmpl);
+  h = resolved ? real_create_w(wide, access, share, sa, disp, flags, tmpl)
+               : real_create_a(path, access, share, sa, disp, flags, tmpl);
+  if (logit)
+    k_log("openA: %s -> %s err=%lu", path, h == INVALID_HANDLE_VALUE ? "FAIL" : "ok",
+          GetLastError());
+  if (h != INVALID_HANDLE_VALUE && logit && trackable(path)) track(h, path);
+#ifdef PROBE_ALWAYS
+  if (h != INVALID_HANDLE_VALUE) {
+    const char *dot = strrchr(path, '.');
+    if (dot && (!_stricmp(dot, ".rct") || !_stricmp(dot, ".mjo") || !_stricmp(dot, ".ogg")))
+      ruri_selftest();
+  }
+#endif
+  return h;
 }
 
 static DWORD WINAPI my_attrs_a(LPCSTR path) {
@@ -359,6 +518,40 @@ static HWND WINAPI my_createdlg_a(HINSTANCE inst, LPCSTR name, HWND parent, DLGP
   return real_createdlg_a(inst, name, parent, proc, param);
 }
 
+static BOOL (WINAPI *real_close)(HANDLE);
+
+static BOOL WINAPI my_close(HANDLE h) {
+  tracked_t *t = find_tracked(h);
+  if (t) t->h = INVALID_HANDLE_VALUE;
+  return real_close(h);
+}
+
+static int env_flag(const char *name) {
+#ifdef PROBE_ALWAYS
+  (void)name;
+  return 1;
+#else
+  DWORD saved = GetLastError();
+  int on = GetEnvironmentVariableA(name, NULL, 0) > 0;
+  SetLastError(saved);
+  return on;
+#endif
+}
+
+static LONG CALLBACK probe_veh(EXCEPTION_POINTERS *ep) {
+  MEMORY_BASIC_INFORMATION mbi;
+  void *addr = ep->ExceptionRecord->ExceptionAddress;
+  if (k_trace_enabled()) {
+    if (VirtualQuery(addr, &mbi, sizeof(mbi)))
+      k_log("fault: code=%08lx addr=%p module=%p off=%08lx",
+            ep->ExceptionRecord->ExceptionCode, addr, mbi.AllocationBase,
+            (unsigned long)((const char *)addr - (const char *)mbi.AllocationBase));
+    else
+      k_log("fault: code=%08lx addr=%p", ep->ExceptionRecord->ExceptionCode, addr);
+  }
+  return EXCEPTION_CONTINUE_SEARCH;
+}
+
 void k_fs_init(void) {
   HMODULE k32 = GetModuleHandleA("kernel32.dll");
   HMODULE u32 = GetModuleHandleA("user32.dll");
@@ -367,6 +560,12 @@ void k_fs_init(void) {
   real_create_a = (create_a_t)GetProcAddress(k32, "CreateFileA");
   real_attrs_w = (attrs_w_t)GetProcAddress(k32, "GetFileAttributesW");
   real_attrs_a = (attrs_a_t)GetProcAddress(k32, "GetFileAttributesA");
+  real_readfile = (BOOL (WINAPI *)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED))GetProcAddress(k32, "ReadFile");
+  real_setfp = (DWORD (WINAPI *)(HANDLE, LONG, PLONG, DWORD))GetProcAddress(k32, "SetFilePointer");
+  real_setfpex = (BOOL (WINAPI *)(HANDLE, PLARGE_INTEGER, PLARGE_INTEGER *, DWORD))GetProcAddress(k32, "SetFilePointerEx");
+  real_getsize = (DWORD (WINAPI *)(HANDLE, LPDWORD))GetProcAddress(k32, "GetFileSize");
+  real_getsizeex = (BOOL (WINAPI *)(HANDLE, PLARGE_INTEGER))GetProcAddress(k32, "GetFileSizeEx");
+  real_close = (BOOL (WINAPI *)(HANDLE))GetProcAddress(k32, "CloseHandle");
   if (u32) real_settext_w = (settext_w_t)GetProcAddress(u32, "SetWindowTextW");
   if (u32) real_msgbox_a = (msgbox_a_t)GetProcAddress(u32, "MessageBoxA");
   if (u32) real_msgbox_w = (int (WINAPI *)(HWND, LPCWSTR, LPCWSTR, UINT))GetProcAddress(u32, "MessageBoxW");
@@ -377,6 +576,13 @@ void k_fs_init(void) {
   k_iat_hook("kernel32.dll", "CreateFileW", (void *)my_create_w);
   if (real_create_a) k_iat_hook("kernel32.dll", "CreateFileA", (void *)my_create_a);
   if (real_attrs_a) k_iat_hook("kernel32.dll", "GetFileAttributesA", (void *)my_attrs_a);
+  if (real_readfile && env_flag("RURI_HOOK_READ")) k_iat_hook("kernel32.dll", "ReadFile", (void *)my_readfile);
+  if (real_setfp && env_flag("RURI_HOOK_SEEK")) k_iat_hook("kernel32.dll", "SetFilePointer", (void *)my_setfp);
+  if (real_setfpex && env_flag("RURI_HOOK_SEEK")) k_iat_hook("kernel32.dll", "SetFilePointerEx", (void *)my_setfpex);
+  if (real_getsize && env_flag("RURI_HOOK_SIZE")) k_iat_hook("kernel32.dll", "GetFileSize", (void *)my_getsize);
+  if (real_getsizeex && env_flag("RURI_HOOK_SIZE")) k_iat_hook("kernel32.dll", "GetFileSizeEx", (void *)my_getsizeex);
+  if (real_close) k_iat_hook("kernel32.dll", "CloseHandle", (void *)my_close);
+  if (k_trace_enabled()) AddVectoredExceptionHandler(1, probe_veh);
   if (real_settext_w) k_iat_hook("user32.dll", "SetWindowTextA", (void *)my_settext_a);
   if (real_msgbox_a) k_iat_hook("user32.dll", "MessageBoxA", (void *)my_msgbox_a);
   if (real_cw_ex_w && real_cw_ex_a) k_iat_hook("user32.dll", "CreateWindowExA", (void *)my_cw_ex_a);

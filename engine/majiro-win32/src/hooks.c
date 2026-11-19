@@ -15,10 +15,14 @@ static int g_hooks_ready;
 static int g_iat_failed;
 
 int k_trace_enabled(void) {
+#ifdef PROBE_ALWAYS
+  return 1;
+#else
   DWORD saved = GetLastError();
   int enabled = GetEnvironmentVariableA("RURI_TRACE", NULL, 0) > 0;
   SetLastError(saved);
   return enabled;
+#endif
 }
 
 int k_readable(const void *ptr, SIZE_T len) {
@@ -395,6 +399,7 @@ static const BYTE S_COUNT[] = {0x55, 0x8B, 0xEC, 0x56, 0x8B, 0x75, 0x08, 0x57, 0
 static const BYTE S_SKIP[] = {0x55, 0x8B, 0xEC, 0x53, 0x8B, 0x5D, 0x0C, 0x85, 0xDB, 0x7E, 0x34};
 static const BYTE S_LEAD[] = {0x55, 0x8B, 0xEC, 0x8B, 0x45, 0x08, 0x0F, 0xB6, 0xC0, 0x0F, 0xBE, 0x80};
 static const BYTE S_LOWER[] = {0x55, 0x8B, 0xEC, 0x56, 0x57, 0x8B, 0x7D, 0x08, 0x8B, 0xF7};
+static const BYTE S_UPPER[] = {0x55, 0x8B, 0xEC, 0x56, 0x57, 0x8B, 0x7D, 0x08, 0x8B, 0xF7};
 static const BYTE S_STRCHR[] = {0x55, 0x8B, 0xEC, 0x53, 0x8B, 0x5D, 0x0C, 0x81, 0xFB, 0x00, 0x01, 0x00, 0x00};
 static const BYTE S_STRREV[] = {0x55, 0x8B, 0xEC, 0x81, 0xEC, 0x04, 0x08, 0x00, 0x00};
 
@@ -413,6 +418,16 @@ static const BYTE S_HASH[] = {0x55, 0x8B, 0xEC, 0x8B, 0x55, 0x08, 0x8B, 0xC2, 0x
 
 typedef unsigned long long(__cdecl *hash_core_t)(unsigned long long, const char *, unsigned);
 
+static void hex_dump(char *out, const unsigned char *s, int n) {
+  static const char d[] = "0123456789abcdef";
+  int i;
+  for (i = 0; i < n && s[i]; i++) {
+    out[i * 2] = d[s[i] >> 4];
+    out[i * 2 + 1] = d[s[i] & 15];
+  }
+  out[i * 2] = 0;
+}
+
 /* Arc entries are keyed by the hash of the CP932 name, but UTF-8 scripts pass
    UTF-8 bytes; hash the CP932 form whenever the name converts losslessly. */
 static unsigned long long __cdecl k_name_hash(const char *s) {
@@ -421,13 +436,60 @@ static unsigned long long __cdecl k_name_hash(const char *s) {
   char buf[512];
   WCHAR w[256];
   BOOL bad = FALSE;
+  unsigned long long h;
   const unsigned char *q;
   for (q = (const unsigned char *)s; *q && *q < 0x80; q++) {}
   if (*q && MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s, -1, w, 256) > 0 &&
       WideCharToMultiByte(932, WC_NO_BEST_FIT_CHARS, w, -1, buf, sizeof(buf), NULL, &bad) > 0 && !bad)
     p = buf;
-  return ~core(~0ULL, p, (unsigned)strlen(p));
+  h = ~core(~0ULL, p, (unsigned)strlen(p));
+#ifdef PROBE_ALWAYS
+  if (*q) {
+    static volatile LONG budget;
+    if (InterlockedIncrement(&budget) <= 4000) {
+      char raw[121], cnv[241];
+      hex_dump(raw, (const unsigned char *)s, 60);
+      hex_dump(cnv, (const unsigned char *)p, 60);
+      k_log("hash: conv=%d h=%016I64x raw=%s", p == buf, h, raw);
+      k_log("hash:   in=%s", p == buf ? cnv : raw);
+    }
+  }
+#else
+  (void)q;
+#endif
+  return h;
 }
+
+/* Exercise the loader's own name pipeline on a UTF-8 route name once the
+   archives are mounted: uppercase (k_upper), then the engine resolver. */
+#ifdef PROBE_ALWAYS
+void ruri_selftest(void) {
+  static volatile LONG done;
+  typedef int(__cdecl *exists_t)(const char *);
+  static const char utf8[] =
+      "01\xE3\x83\xAB\xE3\x83\xAA\xE6\x98\x8E\xE3\x82\x8B\xE3\x81\x84"
+      "\xE3\x83\xAB\xE3\x83\xBC\xE3\x83\x88\x30\x30.mjo";
+  static const char wrecked[] =
+      "01\xE3\x83\xAB\xE3\x83\xAA\xE6\x98\x8E\xE3\x82\x6A\xE3\x81\x84"
+      "\xE3\x83\xAB\xE3\x83\xBC\xE3\x83\x88\x30\x30.MJO";
+  char buf[128], old[128], before[241], after[241];
+  exists_t exists;
+  int found, found_old;
+  if (InterlockedExchange(&done, 1) || !g_base) return;
+  strcpy(buf, utf8);
+  strcpy(old, wrecked);
+  hex_dump(before, (const unsigned char *)buf, 60);
+  k_upper(buf);
+  hex_dump(after, (const unsigned char *)buf, 60);
+  exists = (exists_t)(g_base + (0x47BE30 - IMAGE_BASE));
+  found = exists(buf);
+  found_old = exists(old);
+  k_log("selftest: found=%d old_found=%d hash=%016I64x expect=b808d8ea91c99f12",
+        found, found_old, k_name_hash(buf));
+  k_log("selftest: in=%s", before);
+  k_log("selftest: up=%s", after);
+}
+#endif
 
 /* Control 'f' arrives as "f0x%08x0x%08x0x%08x0x%08x[@]%s" where the first two
    hex fields become font height/width.  A few scenario commands only push two
@@ -575,6 +637,7 @@ static int patch_text_layer(void) {
       install_detour(0x47C6C0, (void *)k_skip) &&
       install_detour(0x47EE00, (void *)k_is_lead) &&
       install_detour(0x47C650, (void *)k_lower) &&
+      install_detour(0x47C8B0, (void *)k_upper) &&
       install_detour(0x47C440, (void *)k_strchr) &&
       install_detour(0x47C710, (void *)k_strrev) &&
       patch_key_edx(0x4444C4) && patch_key_edx(0x44463B) &&
@@ -599,7 +662,7 @@ void ruri_init(void) {
   k_log("ruri: base=%p", g_base);
   if (!(sig_ok(0x47C5D0, S_NEXT, sizeof(S_NEXT)) && sig_ok(0x47C610, S_COUNT, sizeof(S_COUNT)) &&
         sig_ok(0x47C6C0, S_SKIP, sizeof(S_SKIP)) && sig_ok(0x47EE00, S_LEAD, sizeof(S_LEAD)) &&
-        sig_ok(0x47C650, S_LOWER, sizeof(S_LOWER)) && sig_ok(0x47C440, S_STRCHR, sizeof(S_STRCHR)) && sig_ok(0x47C710, S_STRREV, sizeof(S_STRREV)) && sig_ok(0x478E40, S_HASH, sizeof(S_HASH)) && sig_ok(0x4444C4, S_K1, sizeof(S_K1)) &&
+        sig_ok(0x47C650, S_LOWER, sizeof(S_LOWER)) && sig_ok(0x47C8B0, S_UPPER, sizeof(S_UPPER)) && sig_ok(0x47C440, S_STRCHR, sizeof(S_STRCHR)) && sig_ok(0x47C710, S_STRREV, sizeof(S_STRREV)) && sig_ok(0x478E40, S_HASH, sizeof(S_HASH)) && sig_ok(0x4444C4, S_K1, sizeof(S_K1)) &&
         sig_ok(0x44463B, S_K2, sizeof(S_K2)) && sig_ok(0x444870, S_K2, sizeof(S_K2)) &&
         sig_ok(0x444D57, S_K3, sizeof(S_K3)) && sig_ok(0x442AEF, S_K4, sizeof(S_K4)) &&
         sig_ok(0x4444F3, S_M1, sizeof(S_M1)) && sig_ok(0x442B2E, S_M2, sizeof(S_M2)))) {

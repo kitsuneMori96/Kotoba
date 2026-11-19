@@ -85,6 +85,28 @@ int __cdecl k_is_lead(int b) {
   return (b >= 0x81 && b <= 0x9F) || (b >= 0xC0 && b <= 0xFC);
 }
 
+/* The original case casts only fold ASCII and the CP932 fullwidth ranges
+   (0x82 0x60-0x79 / 0x82 0x81-0x9A); map the same characters in UTF-8 text. */
+static int fold_fullwidth(unsigned char *q, int n, uint32_t cp, int upper) {
+  uint32_t target;
+  if (n == 2 && q[0] == 0x82) {
+    unsigned lo = upper ? 0x81 : 0x60, hi = upper ? 0x9A : 0x79;
+    if (q[1] >= lo && q[1] <= hi) {
+      q[1] = (unsigned char)(q[1] + (upper ? -0x21 : 0x21));
+      return 1;
+    }
+    return 0;
+  }
+  if (n == 3 && cp >= (upper ? 0xFF41u : 0xFF21u) && cp <= (upper ? 0xFF5Au : 0xFF3Au)) {
+    target = upper ? cp - 0x20 : cp + 0x20;
+    q[0] = (unsigned char)(0xE0 | (target >> 12));
+    q[1] = (unsigned char)(0x80 | ((target >> 6) & 0x3F));
+    q[2] = (unsigned char)(0x80 | (target & 0x3F));
+    return 1;
+  }
+  return 0;
+}
+
 char *__cdecl k_lower(char *p) {
   unsigned char *q = (unsigned char *)p;
   uint32_t cp;
@@ -92,6 +114,20 @@ char *__cdecl k_lower(char *p) {
   if (!p) return p;
   while ((n = k_decode(q, &cp)) > 0) {
     if (n == 1 && cp >= 'A' && cp <= 'Z') q[0] = (unsigned char)(cp + 0x20);
+    else fold_fullwidth(q, n, cp, 0);
+    q += n;
+  }
+  return p;
+}
+
+char *__cdecl k_upper(char *p) {
+  unsigned char *q = (unsigned char *)p;
+  uint32_t cp;
+  int n;
+  if (!p) return p;
+  while ((n = k_decode(q, &cp)) > 0) {
+    if (n == 1 && cp >= 'a' && cp <= 'z') q[0] = (unsigned char)(cp - 0x20);
+    else fold_fullwidth(q, n, cp, 1);
     q += n;
   }
   return p;

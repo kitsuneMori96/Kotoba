@@ -16,6 +16,7 @@ int __cdecl k_count(const char *p);
 const char *__cdecl k_skip(const char *p, int n);
 int __cdecl k_is_lead(int b);
 char *__cdecl k_lower(char *p);
+char *__cdecl k_upper(char *p);
 const char *__cdecl k_strchr(const char *s, unsigned int ch);
 char *__cdecl k_strrev(char *s);
 
@@ -27,5 +28,8 @@ void k_gdi_init(void);
 void k_msgbox_init(void);
 void k_fs_init(void);
 void ruri_init(void);
+#ifdef PROBE_ALWAYS
+void ruri_selftest(void);
+#endif
 
 #endif
